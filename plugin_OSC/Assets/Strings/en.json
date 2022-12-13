@@ -1,0 +1,6 @@
+{
+  "/Settings/Labels/IPAddress": "IP Address",
+  "/Settings/Labels/UDPPort": "UDP Port",
+  "/Settings/Labels/TCPPort": "TCP Port",
+  "/Settings/Buttons/Reconnect": "Reconnect"
+}
