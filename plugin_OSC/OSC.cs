@@ -21,9 +21,12 @@ using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using System.Net.Sockets;
 using TrackerType = Amethyst.Plugins.Contract.TrackerType;
 using VRC.OSCQuery;
 using OSCExtensions = VRC.OSCQuery.Extensions;
+using CoreOSC;
+using System.Data;
 
 namespace plugin_OSC;
 
@@ -34,12 +37,13 @@ public static class ServiceData {
 
 public struct OSCConfig {
     public string targetIpAddress;
-    public int udpPort, tcpPort;
+    public int oscSendPort, oscReceivePort, tcpPort;
 
-    public OSCConfig(string targetIpAddress = "127.0.0.1", int udpPort = -1, int tcpPort = -1) {
-        this.targetIpAddress = targetIpAddress;
-        this.udpPort = udpPort == -1 ? OSCExtensions.GetAvailableUdpPort() : udpPort;
-        this.tcpPort = tcpPort == -1 ? OSCExtensions.GetAvailableTcpPort() : tcpPort;
+    public OSCConfig(string targetIpAddress = "127.0.0.1", int udpSendPort = -1, int udpListenPort = -1, int tcpPort = -1) {
+        this.targetIpAddress    = targetIpAddress;
+        this.oscSendPort        = udpSendPort   == -1 ? 9000 : udpSendPort;
+        this.oscReceivePort     = udpListenPort == -1 ? 9001 : udpListenPort;
+        this.tcpPort            = tcpPort       == -1 ? OSCExtensions.GetAvailableTcpPort() : tcpPort;
     }
 }
 
@@ -49,9 +53,14 @@ public struct OSCConfig {
 [ExportMetadata("Publisher", "K2VR Team")]
 [ExportMetadata("Website", "https://github.com/KinectToVR/plugin_OSC")]
 public class OSC : IServiceEndpoint {
+
     private const string AMETHYST_OSC_SERVICE_NAME = "AMETHYST-OSC";
+    private const string OSC_TARGET_ADDRESS_TRACKERS_POSITION = "/tracking/trackers/{0}/position";
+    private const string OSC_TARGET_ADDRESS_TRACKERS_ROTATION = "/tracking/trackers/{0}/rotation";
     private static OSCQueryService s_oscQueryService;
-    private static OSCConfig s_oscConfig;
+    private static UDPSender s_oscClient;
+
+    private static OSCConfig s_oscConfig = new OSCConfig("127.0.0.1", -1, -1, -1);
     private bool m_initialized { get; set; }
     private bool m_pluginLoaded { get; set; }
     public OSCLogger Logger {
@@ -89,16 +98,16 @@ public class OSC : IServiceEndpoint {
         new()
         {
             // TrackerType.TrackerHanded,       // OSC models a humanoid
-            // TrackerType.TrackerLeftFoot,     // Already OK
-            // TrackerType.TrackerRightFoot,    // Already OK
-            TrackerType.TrackerLeftShoulder,
-            TrackerType.TrackerRightShoulder,
+            TrackerType.TrackerLeftFoot,     // Already OK
+            TrackerType.TrackerRightFoot,    // Already OK
+            // TrackerType.TrackerLeftShoulder,
+            // TrackerType.TrackerRightShoulder,
             TrackerType.TrackerLeftElbow,
             TrackerType.TrackerRightElbow,
             TrackerType.TrackerLeftKnee,
             TrackerType.TrackerRightKnee,
-            // TrackerType.TrackerWaist,        // Already OK
-            // TrackerType.TrackerChest,        // OSC models a humanoid
+            TrackerType.TrackerWaist,        // Already OK
+            TrackerType.TrackerChest,        // OSC models a humanoid
             // TrackerType.TrackerCamera,       // OSC models a humanoid
             // TrackerType.TrackerKeyboard      // OSC models a humanoid
         };
@@ -119,7 +128,20 @@ public class OSC : IServiceEndpoint {
     }
 
     public void Heartbeat() {
-        // @TODO: Hearbeat
+        if ( s_oscClient == null ) {
+            // If the service hasn't started yet
+            return;
+        }
+
+        (Vector3 Position, Quaternion Orientation)? headJoint = this.Host?.GetHookJointPose(false);
+        if ( headJoint.HasValue ) {
+            
+            // Vector3 eulerAngles = NumericExtensions.ToEulerAngles(headJoint.Value.Orientation);
+            Vector3 position = headJoint.Value.Position;
+
+            s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, "head"), position.X, position.Y, position.Z));
+            // s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, "head"), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
+        }
     }
 
     public int Initialize() {
@@ -130,8 +152,12 @@ public class OSC : IServiceEndpoint {
 
         Host?.Log("[OSC] Init!", LogSeverity.Info);
 
+        if (s_oscClient != null) {
+            Host?.Log("OSC Client was already running!", LogSeverity.Warning);
+        }
+
         if ( s_oscQueryService != null ) {
-            Host?.Log("[OSC] Oopsie!!", LogSeverity.Info);
+            Host?.Log("OSC Query Service was already running!", LogSeverity.Warning);
         }
 
         int tcpPort;
@@ -159,6 +185,11 @@ public class OSC : IServiceEndpoint {
 
         Host?.Log($"{s_oscQueryService.ServerName} running at TCP: {s_oscQueryService.TcpPort} OSC: {s_oscQueryService.OscPort}");
 
+        // s_oscClient = new UDPDuplex(s_oscConfig.targetIpAddress, s_oscConfig.oscReceivePort, s_oscConfig.oscSendPort, HandleOscPacketEvent);
+        s_oscClient = new UDPSender(s_oscConfig.targetIpAddress, s_oscConfig.oscSendPort);
+        // Host?.Log($"Started OSC Server at {s_oscClient.RemoteAddress}, sending on port: {s_oscClient.Port} receiving on port: {s_oscClient.RemotePort}");
+        Host?.Log($"Started OSC Server at {s_oscClient.Address}, sending on port: {s_oscClient.Port}");
+
         // @TODO: Init
         return 0;
     }
@@ -168,13 +199,13 @@ public class OSC : IServiceEndpoint {
         Host?.Log("[OSC] Called OnLoad!");
 
         m_ipTextbox = new TextBox() {
-            PlaceholderText = "localhost",
+            PlaceholderText = s_oscConfig.targetIpAddress,
         };
         m_udpPortTextbox = new TextBox() {
-            PlaceholderText = OSCExtensions.GetAvailableUdpPort().ToString(),
+            PlaceholderText = s_oscConfig.oscSendPort.ToString(),
         };
         m_tcpPortTextbox = new TextBox() {
-            PlaceholderText = OSCExtensions.GetAvailableTcpPort().ToString(),
+            PlaceholderText = s_oscConfig.tcpPort.ToString(),
         };
         m_reconnectButton = new Button() {
             Content = Host?.RequestLocalizedString("/Settings/Buttons/Reconnect", ServiceData.Guid)
@@ -214,6 +245,13 @@ public class OSC : IServiceEndpoint {
         m_pluginLoaded = true;
     }
 
+    private void HandleOscPacketEvent(OscPacket packet) {
+        var message = (OscMessage) packet;
+        Host?.Log($"Received message at {message.Address} with value {message.Arguments}!");
+
+        // @TODO: Handle specific messages?
+    }
+
     public bool? RequestServiceRestart(string reason, bool wantReply = false) {
         Host?.Log($"[OSC] Requested restart; {( wantReply ? "Expecting reply" : "" )} with reason \"{reason}\"!", LogSeverity.Info);
         return wantReply ? false : null;
@@ -221,21 +259,77 @@ public class OSC : IServiceEndpoint {
 
     public void Shutdown() {
 
-        Host?.Log("[OSC] YOU SHOULD KILL YOURSELF ⚡⚡⚡⚡!");
+        Host?.Log("[OSC] Shutting down...");
         // @TODO: Kill OSC Server, and free memory
         if ( s_oscQueryService != null ) {
             s_oscQueryService.Dispose();
             s_oscQueryService = null;
-            GC.Collect(0, GCCollectionMode.Aggressive);
         }
+
+        if ( s_oscClient != null ) {
+            s_oscClient.Close();
+            // s_oscClient.Dispose();
+            s_oscClient = null;
+        }
+        GC.Collect(0, GCCollectionMode.Aggressive);
     }
 
     public async Task<IEnumerable<(TrackerBase Tracker, bool Success)>> SetTrackerStates(IEnumerable<TrackerBase> trackerBases, bool wantReply = true) {
-        return trackerBases.Select(x => (x, true));
+
+        if ( s_oscClient == null ) {
+            Host?.Log("OSC Client is null!", LogSeverity.Warning);
+            return wantReply ? trackerBases.Select(x => (x, false)) : null;
+        }
+
+        return trackerBases.Select(tracker => {
+            try {
+                int trackerId = TrackerRoleToOscId(tracker.Role);
+                if ( trackerId > 0 ) {
+                    Host?.Log($"Sending tracker with id {trackerId}!");
+                    Vector3 eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
+                    Vector3 position = tracker.Position;
+
+                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, position.Z));
+                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
+
+                    return (tracker, true); // It worky!
+                }
+                Host?.Log($"Unknown tracker id {((int) tracker.Role)}", LogSeverity.Warning);
+                return (tracker, true); // No valid trackers selected
+            } catch ( Exception ex ) {
+                Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+                return (tracker, false); // Something happened!
+            }
+        });
     }
 
     public async Task<IEnumerable<(TrackerBase Tracker, bool Success)>> UpdateTrackerPoses(IEnumerable<TrackerBase> trackerBases, bool wantReply = true) {
-        return trackerBases.Select(x => (x, true));
+
+        if ( s_oscClient == null ) {
+            Host?.Log("OSC Client is null!", LogSeverity.Warning);
+            return wantReply ? trackerBases.Select(x => (x, false)) : null;
+        }
+
+        return trackerBases.Select(tracker => {
+            try {
+                int trackerId = TrackerRoleToOscId(tracker.Role);
+                if ( trackerId > 0 ) {
+                    Host?.Log($"Sending tracker with id {trackerId}!");
+                    Vector3 eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
+                    Vector3 position = tracker.Position;
+
+                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, position.Z));
+                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
+
+                    return (tracker, true); // It worky!
+                }
+                Host?.Log($"Unknown tracker id {( ( int ) tracker.Role )}", LogSeverity.Warning);
+                return (tracker, true); // No valid trackers selected
+            } catch ( Exception ex ) {
+                Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+                return (tracker, false); // Something happened!
+            }
+        });
     }
 
     public TrackerBase GetTrackerPose(string contains, bool canBeFromAmethyst = true) {
@@ -249,4 +343,27 @@ public class OSC : IServiceEndpoint {
         // @TODO: Test connection somehow
         return (0, "OK", 0L);
     }
-};
+
+    private static int TrackerRoleToOscId(TrackerType role) {
+        switch ( role ) {
+            case TrackerType.TrackerWaist:
+                return 1;
+            case TrackerType.TrackerLeftFoot:
+                return 2;
+            case TrackerType.TrackerRightFoot:
+                return 3;
+            case TrackerType.TrackerLeftKnee:
+                return 4;
+            case TrackerType.TrackerRightKnee:
+                return 5;
+            case TrackerType.TrackerLeftElbow:
+                return 6;
+            case TrackerType.TrackerRightElbow:
+                return 7;
+            case TrackerType.TrackerChest:
+                return 8;
+            default:
+                return -1;
+        }
+    }
+}
