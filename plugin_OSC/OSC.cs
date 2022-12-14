@@ -271,7 +271,6 @@ public class OSC : IServiceEndpoint {
             // s_oscClient.Dispose();
             s_oscClient = null;
         }
-        GC.Collect(0, GCCollectionMode.Aggressive);
     }
 
     public async Task<IEnumerable<(TrackerBase Tracker, bool Success)>> SetTrackerStates(IEnumerable<TrackerBase> trackerBases, bool wantReply = true) {
@@ -281,26 +280,23 @@ public class OSC : IServiceEndpoint {
             return wantReply ? trackerBases.Select(x => (x, false)) : null;
         }
 
-        return trackerBases.Select(tracker => {
-            try {
+        try {
+            foreach ( var tracker in trackerBases ) {
                 int trackerId = TrackerRoleToOscId(tracker.Role);
+
                 if ( trackerId > 0 ) {
-                    Host?.Log($"Sending tracker with id {trackerId}!");
                     Vector3 eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
                     Vector3 position = tracker.Position;
 
                     s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, position.Z));
                     s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
-
-                    return (tracker, true); // It worky!
                 }
-                Host?.Log($"Unknown tracker id {((int) tracker.Role)}", LogSeverity.Warning);
-                return (tracker, true); // No valid trackers selected
-            } catch ( Exception ex ) {
-                Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
-                return (tracker, false); // Something happened!
             }
-        });
+        } catch ( Exception ex ) {
+            Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+            return trackerBases.Select(x => (x, false));
+        }
+        return trackerBases.Select(x => (x, true));
     }
 
     public async Task<IEnumerable<(TrackerBase Tracker, bool Success)>> UpdateTrackerPoses(IEnumerable<TrackerBase> trackerBases, bool wantReply = true) {
@@ -310,26 +306,23 @@ public class OSC : IServiceEndpoint {
             return wantReply ? trackerBases.Select(x => (x, false)) : null;
         }
 
-        return trackerBases.Select(tracker => {
-            try {
+        try {
+            foreach ( var tracker in trackerBases ) {
                 int trackerId = TrackerRoleToOscId(tracker.Role);
+
                 if ( trackerId > 0 ) {
-                    Host?.Log($"Sending tracker with id {trackerId}!");
                     Vector3 eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
                     Vector3 position = tracker.Position;
 
                     s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, position.Z));
                     s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
-
-                    return (tracker, true); // It worky!
                 }
-                Host?.Log($"Unknown tracker id {( ( int ) tracker.Role )}", LogSeverity.Warning);
-                return (tracker, true); // No valid trackers selected
-            } catch ( Exception ex ) {
-                Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
-                return (tracker, false); // Something happened!
             }
-        });
+        } catch ( Exception ex ) {
+            Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+            return trackerBases.Select(x => (x, false));
+        }
+        return trackerBases.Select(x => (x, true));
     }
 
     public TrackerBase GetTrackerPose(string contains, bool canBeFromAmethyst = true) {
