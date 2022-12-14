@@ -208,16 +208,16 @@ public class OSC : IServiceEndpoint {
             PlaceholderText = s_oscConfig.tcpPort.ToString(),
         };
         m_reconnectButton = new Button() {
-            Content = Host?.RequestLocalizedString("/Settings/Buttons/Reconnect", ServiceData.Guid)
+            Content = Host?.RequestLocalizedString("/Settings/Buttons/Reconnect")
         };
         m_ipAddressLabel = new TextBlock() {
-            Text = Host?.RequestLocalizedString("/Settings/Labels/IPAddress", ServiceData.Guid)
+            Text = Host?.RequestLocalizedString("/Settings/Labels/IPAddress")
         };
         m_udpPortLabel = new TextBlock() {
-            Text = Host?.RequestLocalizedString("/Settings/Labels/UDPPort", ServiceData.Guid)
+            Text = Host?.RequestLocalizedString("/Settings/Labels/UDPPort")
         };
         m_tcpPortLabel = new TextBlock() {
-            Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort", ServiceData.Guid)
+            Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort")
         };
 
         // Creates UI
