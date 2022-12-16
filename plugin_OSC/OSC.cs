@@ -27,6 +27,7 @@ using VRC.OSCQuery;
 using OSCExtensions = VRC.OSCQuery.Extensions;
 using CoreOSC;
 using System.Data;
+using System.Net;
 
 namespace plugin_OSC;
 
@@ -152,43 +153,43 @@ public class OSC : IServiceEndpoint {
 
         Host?.Log("[OSC] Init!", LogSeverity.Info);
 
-        if (s_oscClient != null) {
-            Host?.Log("OSC Client was already running!", LogSeverity.Warning);
+        try {
+
+
+            if ( s_oscClient != null ) {
+                Host?.Log("OSC Client was already running!", LogSeverity.Warning);
+            }
+
+            if ( s_oscQueryService != null ) {
+                Host?.Log("OSC Query Service was already running!", LogSeverity.Warning);
+            }
+
+            // Starts the OSC server
+            s_oscQueryService = new OSCQueryServiceBuilder()
+                .WithServiceName(AMETHYST_OSC_SERVICE_NAME)
+                .WithLogger(Logger)
+                .WithTcpPort(s_oscConfig.tcpPort)
+                .WithUdpPort(s_oscConfig.oscSendPort)
+                .WithDiscovery(new MeaModDiscovery(Logger))
+                .StartHttpServer()
+                .AdvertiseOSCQuery()
+                .AdvertiseOSC()
+                .Build();
+
+            s_oscQueryService.RefreshServices();
+
+            Host?.Log($"{s_oscQueryService.ServerName} running at TCP: {s_oscQueryService.TcpPort} OSC: {s_oscQueryService.OscPort}");
+
+            // s_oscClient = new UDPDuplex(s_oscConfig.targetIpAddress, s_oscConfig.oscReceivePort, s_oscConfig.oscSendPort, HandleOscPacketEvent);
+            s_oscClient = new UDPSender(s_oscConfig.targetIpAddress, s_oscConfig.oscSendPort);
+            // Host?.Log($"Started OSC Server at {s_oscClient.RemoteAddress}, sending on port: {s_oscClient.Port} receiving on port: {s_oscClient.RemotePort}");
+            Host?.Log($"Started OSC Server at {s_oscClient.Address}, sending on port: {s_oscClient.Port}");
+            SaveSettings();
+
+        } catch ( Exception ex ) {
+            Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+            ServiceStatus = -1;
         }
-
-        if ( s_oscQueryService != null ) {
-            Host?.Log("OSC Query Service was already running!", LogSeverity.Warning);
-        }
-
-        int tcpPort;
-        if (!int.TryParse(m_tcpPortTextbox.Text.AsSpan(), out tcpPort)) {
-            tcpPort = OSCExtensions.GetAvailableTcpPort();
-        }
-        int udpPort;
-        if ( !int.TryParse(m_udpPortTextbox.Text.AsSpan(), out udpPort) ) {
-            udpPort = OSCExtensions.GetAvailableUdpPort();
-        }
-
-        // Starts the OSC server
-        s_oscQueryService = new OSCQueryServiceBuilder()
-            .WithServiceName(AMETHYST_OSC_SERVICE_NAME)
-            .WithLogger(Logger)
-            .WithTcpPort(tcpPort)
-            .WithUdpPort(udpPort)
-            .WithDiscovery(new MeaModDiscovery(Logger))
-            .StartHttpServer()
-            .AdvertiseOSCQuery()
-            .AdvertiseOSC()
-            .Build();
-
-        s_oscQueryService.RefreshServices();
-
-        Host?.Log($"{s_oscQueryService.ServerName} running at TCP: {s_oscQueryService.TcpPort} OSC: {s_oscQueryService.OscPort}");
-
-        // s_oscClient = new UDPDuplex(s_oscConfig.targetIpAddress, s_oscConfig.oscReceivePort, s_oscConfig.oscSendPort, HandleOscPacketEvent);
-        s_oscClient = new UDPSender(s_oscConfig.targetIpAddress, s_oscConfig.oscSendPort);
-        // Host?.Log($"Started OSC Server at {s_oscClient.RemoteAddress}, sending on port: {s_oscClient.Port} receiving on port: {s_oscClient.RemotePort}");
-        Host?.Log($"Started OSC Server at {s_oscClient.Address}, sending on port: {s_oscClient.Port}");
 
         // @TODO: Init
         return 0;
