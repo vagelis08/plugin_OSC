@@ -219,6 +219,21 @@ public class OSC : IServiceEndpoint {
         m_tcpPortLabel = new TextBlock() {
             Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort")
         };
+        m_ipTextbox.TextChanged += (sender, args) => {
+            if ( ValidateIp (m_ipTextbox.Text)) {
+                s_oscConfig.targetIpAddress = m_ipTextbox.Text;
+            }
+        };
+        m_udpPortTextbox.TextChanged += (sender, args) => {
+            if (int.TryParse(m_udpPortTextbox.Text.AsSpan(), out int result) ) {
+                s_oscConfig.oscSendPort = result;
+            }
+        };
+        m_tcpPortTextbox.TextChanged += (sender, args) => {
+            if (int.TryParse(m_tcpPortTextbox.Text.AsSpan(), out int result) ) {
+                s_oscConfig.tcpPort = result;
+            }
+        };
 
         // Creates UI
         m_interfaceRoot = new Page {
