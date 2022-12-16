@@ -199,6 +199,8 @@ public class OSC : IServiceEndpoint {
 
         Host?.Log("[OSC] Called OnLoad!");
 
+        LoadSettings();
+
         m_ipTextbox = new TextBox() {
             PlaceholderText = s_oscConfig.targetIpAddress,
         };
@@ -374,5 +376,40 @@ public class OSC : IServiceEndpoint {
             default:
                 return -1;
         }
+    }
+
+    private void LoadSettings() {
+        return;
+        Host?.Log("SETTINGS LOAD");
+
+        if ( Host?.PluginSettings["ipAddress"] != null && ValidateIp(( string ) Host?.PluginSettings["ipAddress"]) ) {
+            s_oscConfig.targetIpAddress = ( string ) Host?.PluginSettings["ipAddress"];
+        }
+        if ( Host?.PluginSettings["oscPort"] != null && int.TryParse(( string ) Host?.PluginSettings["oscPort"], out int resultOsc) ) {
+            s_oscConfig.oscSendPort = resultOsc;
+        }
+        if ( Host?.PluginSettings["tcpPort"] != null && int.TryParse(( string ) Host?.PluginSettings["tcpPort"], out int resultTcp) ) {
+            s_oscConfig.tcpPort = resultTcp;
+        }
+    }
+
+    private void SaveSettings() {
+        return;
+        Host?.PluginSettings.SetSetting("ipAddress", s_oscConfig.targetIpAddress);
+        Host?.PluginSettings.SetSetting("oscPort", s_oscConfig.oscSendPort);
+        Host?.PluginSettings.SetSetting("tcpPort", s_oscConfig.tcpPort);
+
+        Host?.Log("SETTINGS SAVED");
+        Host?.Log(Host?.PluginSettings["ipAddress"]);
+        Host?.Log(Host?.PluginSettings["oscPort"]);
+        Host?.Log(Host?.PluginSettings["tcpPort"]);
+    }
+
+    private static bool ValidateIp(string ip) {
+        string lowerIp = ip.ToLowerInvariant();
+        bool isValidAddress = false;
+        isValidAddress = isValidAddress && ( lowerIp == "localhost" );
+        isValidAddress = isValidAddress && IPAddress.TryParse(ip.AsSpan(), out _);
+        return isValidAddress;
     }
 }
