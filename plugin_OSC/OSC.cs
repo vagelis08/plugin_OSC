@@ -118,7 +118,7 @@ public class OSC : IServiceEndpoint {
 
     public bool IsRestartOnChangesNeeded => false;
     public InputActions ControllerInputActions { get => null; set { } }
-    public bool IsAmethystVisible => false;
+    public bool IsAmethystVisible => true;
     public string TrackingSystemName => "OSC";
 
     public (Vector3 Position, Quaternion Orientation)? HeadsetPose => null;
