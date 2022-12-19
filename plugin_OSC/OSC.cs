@@ -135,7 +135,7 @@ public class OSC : IServiceEndpoint {
 
     public void DisplayToast((string Title, string Text) message) {
         // @TODO: Hope VRChat lets us do this
-        Host?.Log("[OSC] DisplayToast!");
+        Host?.Log("DisplayToast!");
     }
 
     public void Heartbeat() {
@@ -157,11 +157,11 @@ public class OSC : IServiceEndpoint {
 
     public int Initialize() {
 
-        Host?.Log("[OSC] Called Initialize!");
+        Host?.Log("Called Initialize!");
 
         ServiceStatus = 0;
 
-        Host?.Log("[OSC] Init!", LogSeverity.Info);
+        Host?.Log("Init!");
 
         try {
 
@@ -211,7 +211,7 @@ public class OSC : IServiceEndpoint {
 
     public void OnLoad() {
 
-        Host?.Log("[OSC] Called OnLoad!");
+        Host?.Log("Called OnLoad!");
 
         LoadSettings();
 
@@ -316,13 +316,13 @@ public class OSC : IServiceEndpoint {
     }
 
     public bool? RequestServiceRestart(string reason, bool wantReply = false) {
-        Host?.Log($"[OSC] Requested restart; {( wantReply ? "Expecting reply" : "" )} with reason \"{reason}\"!", LogSeverity.Info);
+        Host?.Log($"Requested restart; {( wantReply ? "Expecting reply" : "" )} with reason \"{reason}\"!");
         return wantReply ? false : null;
     }
 
     public void Shutdown() {
 
-        Host?.Log("[OSC] Shutting down...");
+        Host?.Log("Shutting down...");
         if ( s_oscQueryService != null ) {
             s_oscQueryService.Dispose();
             s_oscQueryService = null;
@@ -393,7 +393,7 @@ public class OSC : IServiceEndpoint {
 
     public async Task<(int Status, string StatusMessage, long PingTime)> TestConnection() {
 
-        Host?.Log("[OSC] TestConnection!");
+        Host?.Log("TestConnection!");
         // @TODO: Test connection somehow
         return (0, "OK", 0L);
     }
