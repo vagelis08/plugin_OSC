@@ -71,7 +71,9 @@ public class OSC : IServiceEndpoint {
     private static UDPSender s_oscClient;
 
     private static OSCConfig s_oscConfig = new OSCConfig("127.0.0.1", -1, -1, -1);
-    private bool m_initialized { get; set; }
+    private bool m_isIpValid { get; set; } = true;
+    private bool m_isOscPortValid { get; set; } = true;
+    private bool m_isTcpPortValid { get; set; } = true;
     private bool m_pluginLoaded { get; set; }
     public OSCLogger Logger {
         get {
@@ -88,7 +90,6 @@ public class OSC : IServiceEndpoint {
     private TextBox m_tcpPortTextbox { get; set; }
     private TextBox m_udpPortTextbox { get; set; }
     private TextBox m_ipTextbox { get; set; }
-    private Button m_reconnectButton { get ; set; }
     private TextBlock m_ipAddressLabel { get; set; }
     private TextBlock m_tcpPortLabel { get; set; }
     private TextBlock m_udpPortLabel { get; set; }
@@ -217,31 +218,40 @@ public class OSC : IServiceEndpoint {
         m_ipTextbox = new TextBox() {
             PlaceholderText = "localhost",
             Text = s_oscConfig.targetIpAddress,
+            Margin = new Thickness(0, 0, 0, 0)
         };
         m_udpPortTextbox = new TextBox() {
             PlaceholderText = "9000",
             Text = s_oscConfig.oscSendPort.ToString(),
+            Margin = new Thickness(0, 0, 0, 0)
         };
         m_tcpPortTextbox = new TextBox() {
             PlaceholderText = OSCExtensions.GetAvailableTcpPort().ToString(),
             Text = s_oscConfig.tcpPort.ToString(),
-        };
-        m_reconnectButton = new Button() {
-            Content = Host?.RequestLocalizedString("/Settings/Buttons/Reconnect")
+            Margin = new Thickness(0, 5, 0, 0)
         };
         m_ipAddressLabel = new TextBlock() {
-            Text = Host?.RequestLocalizedString("/Settings/Labels/IPAddress")
+            Text = Host?.RequestLocalizedString("/Settings/Labels/IPAddress"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 5, 0, 0)
         };
         m_udpPortLabel = new TextBlock() {
-            Text = Host?.RequestLocalizedString("/Settings/Labels/UDPPort")
+            Text = Host?.RequestLocalizedString("/Settings/Labels/UDPPort"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 5, 0, 0)
         };
         m_tcpPortLabel = new TextBlock() {
-            Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort")
+            Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort"),
+            FontWeight = FontWeights.SemiBold,
+            Margin = new Thickness(0, 5, 0, 0)
         };
         m_ipTextbox.TextChanged += (sender, args) => {
             string currentIp = m_ipTextbox.Text.Length == 0 ? m_ipTextbox.PlaceholderText : m_ipTextbox.Text;
             if ( ValidateIp (currentIp) ) {
                 s_oscConfig.targetIpAddress = currentIp;
+                m_isIpValid = true;
+            } else {
+                m_isIpValid = false;
             }
         };
         m_udpPortTextbox.TextChanged += (sender, args) => {
@@ -257,25 +267,41 @@ public class OSC : IServiceEndpoint {
             }
         };
 
+        // UI Layout
+        Grid.SetColumn(m_ipAddressLabel, 0);
+        Grid.SetRow(m_ipAddressLabel, 0);
+        Grid.SetColumn(m_ipTextbox, 1);
+        Grid.SetRow(m_ipTextbox, 0);
+
+        Grid.SetColumn(m_udpPortLabel, 0);
+        Grid.SetRow(m_udpPortLabel, 1);
+        Grid.SetColumn(m_udpPortTextbox, 1);
+        Grid.SetRow(m_udpPortTextbox, 1);
+
+        Grid.SetColumn(m_tcpPortLabel, 0);
+        Grid.SetRow(m_tcpPortLabel, 2);
+        Grid.SetColumn(m_tcpPortTextbox, 1);
+        Grid.SetRow(m_tcpPortTextbox, 2);
+
         // Creates UI
         m_interfaceRoot = new Page {
-            Content = new StackPanel {
+            Content = new Grid {
                 Children = {
-                    new StackPanel {
-                        Children = { m_ipAddressLabel, m_ipTextbox },
-                        Orientation = Orientation.Horizontal
-                    },
-                    new StackPanel {
-                        Children = { m_udpPortLabel, m_udpPortTextbox },
-                        Orientation = Orientation.Horizontal
-                    },
-                    new StackPanel {
-                        Children = { m_tcpPortLabel, m_tcpPortTextbox },
-                        Orientation = Orientation.Horizontal
-                    },
-                    m_reconnectButton
+                    m_ipAddressLabel, m_ipTextbox,
+                    m_udpPortLabel, m_udpPortTextbox,
+                    m_tcpPortLabel, m_tcpPortTextbox
                 },
-                Orientation = Orientation.Vertical,
+                ColumnDefinitions =
+                {
+                    new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) },
+                    new ColumnDefinition { Width = new GridLength(5, GridUnitType.Star) }
+                },
+                RowDefinitions =
+                {
+                    new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                    new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                    new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
+                }
             }
         };
 
@@ -297,7 +323,6 @@ public class OSC : IServiceEndpoint {
     public void Shutdown() {
 
         Host?.Log("[OSC] Shutting down...");
-        // @TODO: Kill OSC Server, and free memory
         if ( s_oscQueryService != null ) {
             s_oscQueryService.Dispose();
             s_oscQueryService = null;
@@ -305,7 +330,6 @@ public class OSC : IServiceEndpoint {
 
         if ( s_oscClient != null ) {
             s_oscClient.Close();
-            // s_oscClient.Dispose();
             s_oscClient = null;
         }
     }
@@ -398,8 +422,6 @@ public class OSC : IServiceEndpoint {
     }
 
     private void LoadSettings() {
-        Host?.Log("SETTINGS LOAD");
-
         if ( Host?.PluginSettings.GetSetting<string>("ipAddress") != null && ValidateIp(Host?.PluginSettings.GetSetting<string>("ipAddress").ToString()) ) {
             s_oscConfig.targetIpAddress = ( string ) Host?.PluginSettings.GetSetting("ipAddress", "localhost");
         }
