@@ -37,7 +37,16 @@ public static class ServiceData {
 }
 
 public struct OSCConfig {
-    public string targetIpAddress;
+    private string m_targetIpAddress;
+    public string targetIpAddress {
+        get => m_targetIpAddress;
+        set {
+            m_targetIpAddress = value;
+            if (value.ToLowerInvariant() == "localhost") {
+                m_targetIpAddress = "127.0.0.1";
+            }
+        }
+    }
     public int oscSendPort, oscReceivePort, tcpPort;
 
     public OSCConfig(string targetIpAddress = "127.0.0.1", int udpSendPort = -1, int udpListenPort = -1, int tcpPort = -1) {
@@ -157,11 +166,15 @@ public class OSC : IServiceEndpoint {
 
 
             if ( s_oscClient != null ) {
-                Host?.Log("OSC Client was already running!", LogSeverity.Warning);
+                Host?.Log("OSC Client was already running! Shutting it down...", LogSeverity.Warning);
+                s_oscClient.Close();
+                s_oscClient = null;
             }
 
             if ( s_oscQueryService != null ) {
-                Host?.Log("OSC Query Service was already running!", LogSeverity.Warning);
+                Host?.Log("OSC Query Service was already running! Shutting it down...", LogSeverity.Warning);
+                s_oscQueryService.Dispose();
+                s_oscQueryService = null;
             }
 
             // Starts the OSC server
@@ -202,13 +215,16 @@ public class OSC : IServiceEndpoint {
         LoadSettings();
 
         m_ipTextbox = new TextBox() {
-            PlaceholderText = s_oscConfig.targetIpAddress,
+            PlaceholderText = "localhost",
+            Text = s_oscConfig.targetIpAddress,
         };
         m_udpPortTextbox = new TextBox() {
-            PlaceholderText = s_oscConfig.oscSendPort.ToString(),
+            PlaceholderText = "9000",
+            Text = s_oscConfig.oscSendPort.ToString(),
         };
         m_tcpPortTextbox = new TextBox() {
-            PlaceholderText = s_oscConfig.tcpPort.ToString(),
+            PlaceholderText = OSCExtensions.GetAvailableTcpPort().ToString(),
+            Text = s_oscConfig.tcpPort.ToString(),
         };
         m_reconnectButton = new Button() {
             Content = Host?.RequestLocalizedString("/Settings/Buttons/Reconnect")
@@ -223,17 +239,20 @@ public class OSC : IServiceEndpoint {
             Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort")
         };
         m_ipTextbox.TextChanged += (sender, args) => {
-            if ( ValidateIp (m_ipTextbox.Text)) {
-                s_oscConfig.targetIpAddress = m_ipTextbox.Text;
+            string currentIp = m_ipTextbox.Text.Length == 0 ? m_ipTextbox.PlaceholderText : m_ipTextbox.Text;
+            if ( ValidateIp (currentIp) ) {
+                s_oscConfig.targetIpAddress = currentIp;
             }
         };
         m_udpPortTextbox.TextChanged += (sender, args) => {
-            if (int.TryParse(m_udpPortTextbox.Text.AsSpan(), out int result) ) {
+            string currentOscPort = m_udpPortTextbox.Text.Length == 0 ? m_udpPortTextbox.PlaceholderText : m_udpPortTextbox.Text;
+            if (int.TryParse(currentOscPort.AsSpan(), out int result) ) {
                 s_oscConfig.oscSendPort = result;
             }
         };
         m_tcpPortTextbox.TextChanged += (sender, args) => {
-            if (int.TryParse(m_tcpPortTextbox.Text.AsSpan(), out int result) ) {
+            string currentTcpPort = m_tcpPortTextbox.Text.Length == 0 ? m_tcpPortTextbox.PlaceholderText : m_tcpPortTextbox.Text;
+            if (int.TryParse(currentTcpPort.AsSpan(), out int result) ) {
                 s_oscConfig.tcpPort = result;
             }
         };
@@ -379,37 +398,31 @@ public class OSC : IServiceEndpoint {
     }
 
     private void LoadSettings() {
-        return;
         Host?.Log("SETTINGS LOAD");
 
-        if ( Host?.PluginSettings["ipAddress"] != null && ValidateIp(( string ) Host?.PluginSettings["ipAddress"]) ) {
-            s_oscConfig.targetIpAddress = ( string ) Host?.PluginSettings["ipAddress"];
+        if ( Host?.PluginSettings.GetSetting<string>("ipAddress") != null && ValidateIp(Host?.PluginSettings.GetSetting<string>("ipAddress").ToString()) ) {
+            s_oscConfig.targetIpAddress = ( string ) Host?.PluginSettings.GetSetting("ipAddress", "localhost");
         }
-        if ( Host?.PluginSettings["oscPort"] != null && int.TryParse(( string ) Host?.PluginSettings["oscPort"], out int resultOsc) ) {
+        if ( Host?.PluginSettings.GetSetting<int>("oscPort") != null && int.TryParse(Host?.PluginSettings.GetSetting<int>("oscPort").ToString(), out int resultOsc) ) {
             s_oscConfig.oscSendPort = resultOsc;
         }
-        if ( Host?.PluginSettings["tcpPort"] != null && int.TryParse(( string ) Host?.PluginSettings["tcpPort"], out int resultTcp) ) {
+        if ( Host?.PluginSettings.GetSetting<int>("tcpPort") != null && int.TryParse(Host?.PluginSettings.GetSetting<int>("tcpPort").ToString(), out int resultTcp) ) {
             s_oscConfig.tcpPort = resultTcp;
         }
     }
 
     private void SaveSettings() {
-        return;
-        Host?.PluginSettings.SetSetting("ipAddress", s_oscConfig.targetIpAddress);
+        Host?.PluginSettings.SetSetting("ipAddress", s_oscConfig.targetIpAddress.ToString());
         Host?.PluginSettings.SetSetting("oscPort", s_oscConfig.oscSendPort);
         Host?.PluginSettings.SetSetting("tcpPort", s_oscConfig.tcpPort);
-
-        Host?.Log("SETTINGS SAVED");
-        Host?.Log(Host?.PluginSettings["ipAddress"]);
-        Host?.Log(Host?.PluginSettings["oscPort"]);
-        Host?.Log(Host?.PluginSettings["tcpPort"]);
     }
 
     private static bool ValidateIp(string ip) {
         string lowerIp = ip.ToLowerInvariant();
-        bool isValidAddress = false;
-        isValidAddress = isValidAddress && ( lowerIp == "localhost" );
-        isValidAddress = isValidAddress && IPAddress.TryParse(ip.AsSpan(), out _);
-        return isValidAddress;
+        if ( lowerIp == "localhost" )
+            return true;
+        if (IPAddress.TryParse(ip.AsSpan(), out _))
+            return true;
+        return false;
     }
 }
