@@ -125,6 +125,7 @@ public class OSC : IServiceEndpoint {
 
     public bool AutoStartAmethyst { get => false; set { } }
     public bool AutoCloseAmethyst { get => false; set { } }
+    public bool CanAutoStartAmethyst => false;
 
     public bool IsRestartOnChangesNeeded => false;
     public InputActions ControllerInputActions { get => null; set { } }
