@@ -134,6 +134,8 @@ public class OSC : IServiceEndpoint {
 
     public (Vector3 Position, Quaternion Orientation)? HeadsetPose => null;
 
+    private static readonly Vector3 HEAD_OFFSET = new Vector3(0, 0, 0.2f);
+
     public void DisplayToast((string Title, string Text) message) {
         // @TODO: Hope VRChat lets us do this
         Host?.Log("DisplayToast!");
@@ -149,9 +151,9 @@ public class OSC : IServiceEndpoint {
         if ( headJoint.HasValue ) {
             
             // Vector3 eulerAngles = NumericExtensions.ToEulerAngles(headJoint.Value.Orientation);
-            Vector3 position = headJoint.Value.Position;
+            Vector3 position = headJoint.Value.Position + HEAD_OFFSET;
 
-            s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, "head"), position.X, position.Y, position.Z));
+            s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, "head"), position.X, position.Y, -position.Z));
             // s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, "head"), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
         }
     }
@@ -350,7 +352,7 @@ public class OSC : IServiceEndpoint {
                     Vector3 eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
                     Vector3 position = tracker.Position;
 
-                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, position.Z));
+                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, -position.Z));
                     s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
                 }
             }
@@ -376,7 +378,7 @@ public class OSC : IServiceEndpoint {
                     Vector3 eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
                     Vector3 position = tracker.Position;
 
-                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, position.Z));
+                    s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId), position.X, position.Y, -position.Z));
                     s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
                 }
             }
