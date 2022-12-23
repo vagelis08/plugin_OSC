@@ -3,6 +3,8 @@ using System.Numerics;
 
 namespace plugin_OSC {
     public static class NumericExtensions {
+        const float RAD2DEG = (float) (180.0 / Math.PI);
+
         public static Vector3 ToEulerAngles(Quaternion q) {
             Vector3 angles = new();
 
@@ -24,7 +26,7 @@ namespace plugin_OSC {
             double cosy_cosp = 1.0 - 2.0 * (q.Y * q.Y + q.Z * q.Z);
             angles.Z = ( float ) Math.Atan2(siny_cosp, cosy_cosp);
 
-            return angles;
+            return angles * RAD2DEG;
         }
     }
 }
