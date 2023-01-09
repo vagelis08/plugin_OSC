@@ -1,40 +1,46 @@
-﻿using Amethyst.Plugins.Contract;
+﻿using System;
+using Amethyst.Plugins.Contract;
 using Microsoft.Extensions.Logging;
-using System;
 using VRC.OSCQuery;
 
-namespace plugin_OSC {
-    public class OSCLogger : ILogger<OSCQueryService> {
-        private IAmethystHost m_host;
+namespace plugin_OSC;
 
-        public OSCLogger(IAmethystHost host) {
-            this.m_host = host;
-        }
+public class OSCLogger : ILogger<OSCQueryService>
+{
+    private readonly IAmethystHost m_host;
 
-        public IDisposable BeginScope<TState>(TState state) {
-            return null;
-        }
+    public OSCLogger(IAmethystHost host)
+    {
+        m_host = host;
+    }
 
-        public bool IsEnabled(LogLevel logLevel) {
-            return true;
-        }
+    public IDisposable BeginScope<TState>(TState state)
+    {
+        return null;
+    }
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter) {
+    public bool IsEnabled(LogLevel logLevel)
+    {
+        return true;
+    }
 
-            switch ( logLevel ) {
-                case LogLevel.Information:
-                    m_host?.Log($"[VRC-OSCQuery] {state}", LogSeverity.Info);
-                    break;
-                case LogLevel.Warning:
-                    m_host?.Log($"[VRC-OSCQuery] {state}", LogSeverity.Warning);
-                    break;
-                case LogLevel.Error:
-                    m_host?.Log($"[VRC-OSCQuery] {state}", LogSeverity.Error);
-                    break;
-                case LogLevel.Critical:
-                    m_host?.Log($"[VRC-OSCQuery] {state}", LogSeverity.Fatal);
-                    break;
-            }
+    public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception,
+        Func<TState, Exception, string> formatter)
+    {
+        switch (logLevel)
+        {
+            case LogLevel.Information:
+                m_host?.Log($"[VRC-OSCQuery] {state}");
+                break;
+            case LogLevel.Warning:
+                m_host?.Log($"[VRC-OSCQuery] {state}", LogSeverity.Warning);
+                break;
+            case LogLevel.Error:
+                m_host?.Log($"[VRC-OSCQuery] {state}", LogSeverity.Error);
+                break;
+            case LogLevel.Critical:
+                m_host?.Log($"[VRC-OSCQuery] {state}", LogSeverity.Fatal);
+                break;
         }
     }
 }
