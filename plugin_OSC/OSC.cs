@@ -1,13 +1,9 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
-using System;
-using System.Collections.Generic;
 using System.ComponentModel.Composition;
-using System.Linq;
 using System.Net;
 using System.Numerics;
-using System.Threading.Tasks;
 using Amethyst.Plugins.Contract;
 using CoreOSC;
 using Microsoft.UI.Text;
@@ -18,29 +14,30 @@ using OSCExtensions = VRC.OSCQuery.Extensions;
 
 namespace plugin_OSC;
 
-public struct OSCConfig
+public struct OscConfig
 {
-    private string m_targetIpAddress;
+    private string _mTargetIpAddress;
+    public int OscSendPort { get; set; }
+    public int OscReceivePort { get; set; }
+    public int TcpPort { get; set; }
 
-    public string targetIpAddress
+    public string TargetIpAddress
     {
-        get => m_targetIpAddress;
+        get => _mTargetIpAddress;
         set
         {
-            m_targetIpAddress = value;
-            if (value.ToLowerInvariant() == "localhost") m_targetIpAddress = "127.0.0.1";
+            _mTargetIpAddress = value;
+            if (value.ToLowerInvariant() == "localhost") _mTargetIpAddress = "127.0.0.1";
         }
     }
 
-    public int oscSendPort, oscReceivePort, tcpPort;
-
-    public OSCConfig(string targetIpAddress = "127.0.0.1", int udpSendPort = -1, int udpListenPort = -1,
-        int tcpPort = -1)
+    public OscConfig(string targetIpAddress = "127.0.0.1", int udpSendPort = -1,
+        int udpListenPort = -1, int tcpPort = -1)
     {
-        this.targetIpAddress = targetIpAddress;
-        oscSendPort = udpSendPort == -1 ? 9000 : udpSendPort;
-        oscReceivePort = udpListenPort == -1 ? 9001 : udpListenPort;
-        this.tcpPort = tcpPort == -1 ? OSCExtensions.GetAvailableTcpPort() : tcpPort;
+        TargetIpAddress = targetIpAddress;
+        OscSendPort = udpSendPort == -1 ? 9000 : udpSendPort;
+        OscReceivePort = udpListenPort == -1 ? 9001 : udpListenPort;
+        TcpPort = tcpPort == -1 ? OSCExtensions.GetAvailableTcpPort() : tcpPort;
     }
 }
 
@@ -49,35 +46,35 @@ public struct OSCConfig
 [ExportMetadata("Guid", "K2VRTEAM-AME2-APII-SNDP-SENDPTVRCOSC")]
 [ExportMetadata("Publisher", "K2VR Team")]
 [ExportMetadata("Website", "https://github.com/KinectToVR/plugin_OSC")]
-public class OSC : IServiceEndpoint
+public class Osc : IServiceEndpoint
 {
-    private const string AMETHYST_OSC_SERVICE_NAME = "AMETHYST-OSC";
-    private const string OSC_TARGET_ADDRESS_TRACKERS_POSITION = "/tracking/trackers/{0}/position";
-    private const string OSC_TARGET_ADDRESS_TRACKERS_ROTATION = "/tracking/trackers/{0}/rotation";
-    private static OSCQueryService s_oscQueryService;
-    private static UDPSender s_oscClient;
-    private static OSCConfig s_oscConfig = new("127.0.0.1");
+    private const string AmethystOscServiceName = "AMETHYST-OSC";
+    private const string OscTargetAddressTrackersPosition = "/tracking/trackers/{0}/position";
+    private const string OscTargetAddressTrackersRotation = "/tracking/trackers/{0}/rotation";
 
-    private static readonly Vector3 HEAD_OFFSET = new(0, 0, 0.2f);
-    private Exception LastInitException;
-    private bool m_isIpValid { get; set; } = true;
-    private bool m_isOscPortValid { get; set; } = true;
-    private bool m_isTcpPortValid { get; set; } = true;
-    private bool m_pluginLoaded { get; set; }
+    private static OSCQueryService _sOscQueryService;
+    private static UDPSender _sOscClient;
+    private static OscConfig _sOscConfig = new("127.0.0.1");
+    private static readonly Vector3 HeadOffset = new(0, 0, 0.2f);
 
-    private OSCLogger Logger => m_ameLogger ??= new OSCLogger(Host);
-
-    private OSCLogger m_ameLogger { get; set; }
-
+    private Exception _lastInitException;
     [Import(typeof(IAmethystHost))] private IAmethystHost Host { get; set; }
-    public bool IsSettingsDaemonSupported => true;
 
-    public object SettingsInterfaceRoot => m_interfaceRoot;
+    private bool IsIpValid { get; set; } = true;
+    private bool IsOscPortValid { get; set; } = true;
+    private bool IsTcpPortValid { get; set; } = true;
+    private bool PluginLoaded { get; set; }
+
+    private OscLogger Logger => AmethystLogger ??= new OscLogger(Host);
+    private OscLogger AmethystLogger { get; set; }
+
+    public bool IsSettingsDaemonSupported => true;
+    public object SettingsInterfaceRoot => MInterfaceRoot;
 
     public int ServiceStatus { get; private set; } = (int)OscStatusEnum.Unknown;
 
     public string ServiceStatusString => Host?.RequestLocalizedString($"/Statuses/{(OscStatusEnum)ServiceStatus}")
-        .Replace("{0}", LastInitException?.Message ?? "[Not available]");
+        .Replace("{0}", _lastInitException?.Message ?? "[Not available]");
 
     public Uri ErrorDocsUri => new($"https://docs.k2vr.tech/{Host?.DocsLanguageCode ?? "en"}/osc/");
 
@@ -105,15 +102,14 @@ public class OSC : IServiceEndpoint
         set { }
     }
 
-    public bool CanAutoStartAmethyst => false;
-
-    public bool IsRestartOnChangesNeeded => false;
-
     public InputActions ControllerInputActions
     {
         get => null;
         set { }
     }
+
+    public bool CanAutoStartAmethyst => false;
+    public bool IsRestartOnChangesNeeded => false;
 
     public bool IsAmethystVisible => true;
     public string TrackingSystemName => "OSC";
@@ -129,15 +125,15 @@ public class OSC : IServiceEndpoint
     public void Heartbeat()
     {
         // If the service hasn't started yet
-        if (s_oscClient == null) return;
+        if (_sOscClient == null) return;
 
         var headJoint = Host?.GetHookJointPose();
         if (!headJoint.HasValue) return;
 
         // Vector3 eulerAngles = NumericExtensions.ToEulerAngles(headJoint.Value.Orientation);
-        var position = headJoint.Value.Position + HEAD_OFFSET;
+        var position = headJoint.Value.Position + HeadOffset;
 
-        s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, "head"),
+        _sOscClient.Send(new OscMessage(string.Format(OscTargetAddressTrackersPosition, "head"),
             position.X, position.Y, -position.Z));
         // s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, "head"), eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
     }
@@ -152,51 +148,51 @@ public class OSC : IServiceEndpoint
 
         try
         {
-            if (s_oscClient != null)
+            if (_sOscClient != null)
             {
                 Host?.Log("OSC Client was already running! Shutting it down...", LogSeverity.Warning);
-                s_oscClient.Close();
-                s_oscClient = null;
+                _sOscClient.Close();
+                _sOscClient = null;
             }
 
-            if (s_oscQueryService != null)
+            if (_sOscQueryService != null)
             {
                 Host?.Log("OSC Query Service was already running! Shutting it down...", LogSeverity.Warning);
-                s_oscQueryService.Dispose();
-                s_oscQueryService = null;
+                _sOscQueryService.Dispose();
+                _sOscQueryService = null;
             }
 
             // Starts the OSC server
-            s_oscQueryService = new OSCQueryServiceBuilder()
-                .WithServiceName(AMETHYST_OSC_SERVICE_NAME)
+            _sOscQueryService = new OSCQueryServiceBuilder()
+                .WithServiceName(AmethystOscServiceName)
                 .WithLogger(Logger)
-                .WithTcpPort(s_oscConfig.tcpPort)
-                .WithUdpPort(s_oscConfig.oscSendPort)
+                .WithTcpPort(_sOscConfig.TcpPort)
+                .WithUdpPort(_sOscConfig.OscSendPort)
                 .WithDiscovery(new MeaModDiscovery(Logger))
                 .StartHttpServer()
                 .AdvertiseOSCQuery()
                 .AdvertiseOSC()
                 .Build();
 
-            s_oscQueryService.RefreshServices();
+            _sOscQueryService.RefreshServices();
 
-            Host?.Log($"{s_oscQueryService.ServerName} running at TCP: " +
-                      $"{s_oscQueryService.TcpPort} OSC: {s_oscQueryService.OscPort}");
+            Host?.Log($"{_sOscQueryService.ServerName} running at TCP: " +
+                      $"{_sOscQueryService.TcpPort} OSC: {_sOscQueryService.OscPort}");
 
-            // s_oscClient = new UDPDuplex(s_oscConfig.targetIpAddress, s_oscConfig.oscReceivePort, s_oscConfig.oscSendPort, HandleOscPacketEvent);
-            s_oscClient = new UDPSender(s_oscConfig.targetIpAddress, s_oscConfig.oscSendPort);
+            // s_oscClient = new UDPDuplex(s_oscConfig.TargetIpAddress, s_oscConfig.oscReceivePort, s_oscConfig.oscSendPort, HandleOscPacketEvent);
+            _sOscClient = new UDPSender(_sOscConfig.TargetIpAddress, _sOscConfig.OscSendPort);
             // Host?.Log($"Started OSC Server at {s_oscClient.RemoteAddress}, sending on port: {s_oscClient.Port} receiving on port: {s_oscClient.RemotePort}");
-            Host?.Log($"Started OSC Server at {s_oscClient.Address}, sending on port: {s_oscClient.Port}");
+            Host?.Log($"Started OSC Server at {_sOscClient.Address}, sending on port: {_sOscClient.Port}");
 
             ServiceStatus = (int)OscStatusEnum.Success;
             SaveSettings();
         }
         catch (Exception ex)
         {
-            Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}",
-                LogSeverity.Fatal);
+            Host?.Log($"Unhandled Exception: {ex.GetType().Name} " +
+                      $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
 
-            LastInitException = ex;
+            _lastInitException = ex;
             ServiceStatus = (int)OscStatusEnum.InitException;
         }
 
@@ -208,119 +204,120 @@ public class OSC : IServiceEndpoint
     {
         Host?.Log("Called OnLoad!");
 
+        // Try loading OSC settings
         LoadSettings();
 
-        m_ipAddressLabel = new TextBlock
+        // Construct the plugin UI
+        MIpAddressLabel = new TextBlock
         {
             Margin = new Thickness { Top = 2 },
             Text = Host?.RequestLocalizedString("/Settings/Labels/IPAddress"),
             FontWeight = FontWeights.SemiBold
         };
-        m_ipTextbox = new TextBox
+        MIpTextbox = new TextBox
         {
             PlaceholderText = "localhost",
-            Text = s_oscConfig.targetIpAddress
+            Text = _sOscConfig.TargetIpAddress
         };
 
-        m_udpPortLabel = new TextBlock
+        MUdpPortLabel = new TextBlock
         {
             Margin = new Thickness { Top = 2 },
             Text = Host?.RequestLocalizedString("/Settings/Labels/UDPPort"),
             FontWeight = FontWeights.SemiBold
         };
-        m_udpPortTextbox = new TextBox
+        MUdpPortTextbox = new TextBox
         {
             PlaceholderText = "9000",
-            Text = s_oscConfig.oscSendPort.ToString()
+            Text = _sOscConfig.OscSendPort.ToString()
         };
 
-        m_tcpPortLabel = new TextBlock
+        MTcpPortLabel = new TextBlock
         {
             Margin = new Thickness { Top = 2 },
             Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort"),
             FontWeight = FontWeights.SemiBold
         };
-        m_tcpPortTextbox = new TextBox
+        MTcpPortTextbox = new TextBox
         {
             PlaceholderText = OSCExtensions.GetAvailableTcpPort().ToString(),
-            Text = s_oscConfig.tcpPort.ToString()
+            Text = _sOscConfig.TcpPort.ToString()
         };
 
-        m_ipTextbox.TextChanged += (_, _) =>
+        MIpTextbox.TextChanged += (_, _) =>
         {
-            var currentIp = m_ipTextbox.Text.Length == 0 ? m_ipTextbox.PlaceholderText : m_ipTextbox.Text;
+            var currentIp = MIpTextbox.Text.Length == 0 ? MIpTextbox.PlaceholderText : MIpTextbox.Text;
             if (ValidateIp(currentIp))
             {
-                s_oscConfig.targetIpAddress = currentIp;
-                m_isIpValid = true;
+                _sOscConfig.TargetIpAddress = currentIp;
+                IsIpValid = true;
             }
             else
             {
-                m_isIpValid = false;
+                IsIpValid = false;
             }
         };
 
-        m_udpPortTextbox.TextChanged += (_, _) =>
+        MUdpPortTextbox.TextChanged += (_, _) =>
         {
-            var currentOscPort = m_udpPortTextbox.Text.Length == 0
-                ? m_udpPortTextbox.PlaceholderText
-                : m_udpPortTextbox.Text;
-            if (int.TryParse(currentOscPort.AsSpan(), out var result)) s_oscConfig.oscSendPort = result;
+            var currentOscPort = MUdpPortTextbox.Text.Length == 0
+                ? MUdpPortTextbox.PlaceholderText
+                : MUdpPortTextbox.Text;
+            if (int.TryParse(currentOscPort.AsSpan(), out var result)) _sOscConfig.OscSendPort = result;
         };
 
-        m_tcpPortTextbox.TextChanged += (_, _) =>
+        MTcpPortTextbox.TextChanged += (_, _) =>
         {
-            var currentTcpPort = m_tcpPortTextbox.Text.Length == 0
-                ? m_tcpPortTextbox.PlaceholderText
-                : m_tcpPortTextbox.Text;
-            if (int.TryParse(currentTcpPort.AsSpan(), out var result)) s_oscConfig.tcpPort = result;
+            var currentTcpPort = MTcpPortTextbox.Text.Length == 0
+                ? MTcpPortTextbox.PlaceholderText
+                : MTcpPortTextbox.Text;
+            if (int.TryParse(currentTcpPort.AsSpan(), out var result)) _sOscConfig.TcpPort = result;
         };
 
         // UI Layout
-        Grid.SetColumn(m_ipAddressLabel, 0);
-        Grid.SetRow(m_ipAddressLabel, 0);
-        Grid.SetColumn(m_ipTextbox, 1);
-        Grid.SetRow(m_ipTextbox, 0);
+        Grid.SetColumn(MIpAddressLabel, 0);
+        Grid.SetRow(MIpAddressLabel, 0);
+        Grid.SetColumn(MIpTextbox, 1);
+        Grid.SetRow(MIpTextbox, 0);
 
-        Grid.SetColumn(m_udpPortLabel, 0);
-        Grid.SetRow(m_udpPortLabel, 2);
-        Grid.SetColumn(m_udpPortTextbox, 1);
-        Grid.SetRow(m_udpPortTextbox, 2);
+        Grid.SetColumn(MUdpPortLabel, 0);
+        Grid.SetRow(MUdpPortLabel, 1);
+        Grid.SetColumn(MUdpPortTextbox, 1);
+        Grid.SetRow(MUdpPortTextbox, 1);
 
-        Grid.SetColumn(m_tcpPortLabel, 0);
-        Grid.SetRow(m_tcpPortLabel, 4);
-        Grid.SetColumn(m_tcpPortTextbox, 1);
-        Grid.SetRow(m_tcpPortTextbox, 4);
+        Grid.SetColumn(MTcpPortLabel, 0);
+        Grid.SetRow(MTcpPortLabel, 2);
+        Grid.SetColumn(MTcpPortTextbox, 1);
+        Grid.SetRow(MTcpPortTextbox, 2);
 
         // Creates UI
-        m_interfaceRoot = new Page
+        MInterfaceRoot = new Page
         {
             Content = new Grid
             {
                 Margin = new Thickness { Left = 3 },
                 Children =
                 {
-                    m_ipAddressLabel, m_ipTextbox,
-                    m_udpPortLabel, m_udpPortTextbox,
-                    m_tcpPortLabel, m_tcpPortTextbox
+                    MIpAddressLabel, MIpTextbox,
+                    MUdpPortLabel, MUdpPortTextbox,
+                    MTcpPortLabel, MTcpPortTextbox
                 },
                 ColumnDefinitions =
                 {
                     new ColumnDefinition { Width = new GridLength(2, GridUnitType.Star) },
                     new ColumnDefinition { Width = new GridLength(5, GridUnitType.Star) }
                 },
+                RowSpacing = 6,
                 RowDefinitions =
                 {
                     new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
-                    new RowDefinition { Height = new GridLength(5, GridUnitType.Pixel) },
                     new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
-                    new RowDefinition { Height = new GridLength(5, GridUnitType.Pixel) },
                     new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
                 }
             }
         };
 
-        m_pluginLoaded = true;
+        PluginLoaded = true;
     }
 
     public bool? RequestServiceRestart(string reason, bool wantReply = false)
@@ -333,22 +330,22 @@ public class OSC : IServiceEndpoint
     {
         Host?.Log("Shutting down...");
 
-        s_oscQueryService?.Dispose();
-        s_oscQueryService = null;
+        _sOscQueryService?.Dispose();
+        _sOscQueryService = null;
 
-        s_oscClient?.Close();
-        s_oscClient = null;
+        _sOscClient?.Close();
+        _sOscClient = null;
 
         ServiceStatus = (int)OscStatusEnum.Unknown;
     }
 
-    public async Task<IEnumerable<(TrackerBase Tracker, bool Success)>> SetTrackerStates(
+    public Task<IEnumerable<(TrackerBase Tracker, bool Success)>> SetTrackerStates(
         IEnumerable<TrackerBase> trackerBases, bool wantReply = true)
     {
-        if (s_oscClient == null)
+        if (_sOscClient == null)
         {
             Host?.Log("OSC Client is null!", LogSeverity.Warning);
-            return wantReply ? trackerBases.Select(x => (x, false)) : null;
+            return Task.FromResult(wantReply ? trackerBases.Select(x => (x, false)) : null);
         }
 
         try
@@ -361,29 +358,29 @@ public class OSC : IServiceEndpoint
                 var eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
                 var position = tracker.Position;
 
-                s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId),
+                _sOscClient.Send(new OscMessage(string.Format(OscTargetAddressTrackersPosition, trackerId),
                     position.X, position.Y, -position.Z));
-                s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId),
+                _sOscClient.Send(new OscMessage(string.Format(OscTargetAddressTrackersRotation, trackerId),
                     eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
             }
         }
         catch (Exception ex)
         {
-            Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}",
-                LogSeverity.Fatal);
-            return trackerBases.Select(x => (x, false));
+            Host?.Log($"Unhandled Exception: {ex.GetType().Name} " +
+                      $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+            return Task.FromResult(trackerBases.Select(x => (x, false)));
         }
 
-        return trackerBases.Select(x => (x, true));
+        return Task.FromResult(trackerBases.Select(x => (x, true)));
     }
 
-    public async Task<IEnumerable<(TrackerBase Tracker, bool Success)>> UpdateTrackerPoses(
+    public Task<IEnumerable<(TrackerBase Tracker, bool Success)>> UpdateTrackerPoses(
         IEnumerable<TrackerBase> trackerBases, bool wantReply = true)
     {
-        if (s_oscClient == null)
+        if (_sOscClient == null)
         {
             Host?.Log("OSC Client is null!", LogSeverity.Warning);
-            return wantReply ? trackerBases.Select(x => (x, false)) : null;
+            return Task.FromResult(wantReply ? trackerBases.Select(x => (x, false)) : null);
         }
 
         try
@@ -396,20 +393,20 @@ public class OSC : IServiceEndpoint
                 var eulerAngles = NumericExtensions.ToEulerAngles(tracker.Orientation);
                 var position = tracker.Position;
 
-                s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_POSITION, trackerId),
+                _sOscClient.Send(new OscMessage(string.Format(OscTargetAddressTrackersPosition, trackerId),
                     position.X, position.Y, -position.Z));
-                s_oscClient.Send(new OscMessage(string.Format(OSC_TARGET_ADDRESS_TRACKERS_ROTATION, trackerId),
+                _sOscClient.Send(new OscMessage(string.Format(OscTargetAddressTrackersRotation, trackerId),
                     eulerAngles.X, eulerAngles.Y, eulerAngles.Z));
             }
         }
         catch (Exception ex)
         {
-            Host?.Log($"Unhandled Exception: {ex.GetType().Name} in {ex.Source}: {ex.Message}\n{ex.StackTrace}",
-                LogSeverity.Fatal);
-            return trackerBases.Select(x => (x, false));
+            Host?.Log($"Unhandled Exception: {ex.GetType().Name} " +
+                      $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+            return Task.FromResult(trackerBases.Select(x => (x, false)));
         }
 
-        return trackerBases.Select(x => (x, true));
+        return Task.FromResult(trackerBases.Select(x => (x, true)));
     }
 
     public TrackerBase GetTrackerPose(string contains, bool canBeFromAmethyst = true)
@@ -418,11 +415,11 @@ public class OSC : IServiceEndpoint
         return null;
     }
 
-    public async Task<(int Status, string StatusMessage, long PingTime)> TestConnection()
+    public Task<(int Status, string StatusMessage, long PingTime)> TestConnection()
     {
-        Host?.Log("TestConnection!");
         // @TODO: Test connection somehow
-        return (0, "OK", 0L);
+        Host?.Log("TestConnection!");
+        return Task.FromResult((0, "OK", 0L));
     }
 
     private void HandleOscPacketEvent(OscPacket packet)
@@ -452,17 +449,17 @@ public class OSC : IServiceEndpoint
     private void LoadSettings()
     {
         // Host should already be resolved at this point, but check anyway
-        s_oscConfig.targetIpAddress = ValidateIp( // Check if the saved IP is valid, fallback to local
+        _sOscConfig.TargetIpAddress = ValidateIp( // Check if the saved IP is valid, fallback to local
             Host?.PluginSettings.GetSetting("ipAddress", "127.0.0.1"), "127.0.0.1");
-        s_oscConfig.oscSendPort = Host?.PluginSettings.GetSetting("oscPort", 9000) ?? 9000;
-        s_oscConfig.tcpPort = Host?.PluginSettings.GetSetting("tcpPort", 54126) ?? 54126;
+        _sOscConfig.OscSendPort = Host?.PluginSettings.GetSetting("oscPort", 9000) ?? 9000;
+        _sOscConfig.TcpPort = Host?.PluginSettings.GetSetting("tcpPort", 54126) ?? 54126;
     }
 
     private void SaveSettings()
     {
-        Host?.PluginSettings.SetSetting("ipAddress", s_oscConfig.targetIpAddress);
-        Host?.PluginSettings.SetSetting("oscPort", s_oscConfig.oscSendPort);
-        Host?.PluginSettings.SetSetting("tcpPort", s_oscConfig.tcpPort);
+        Host?.PluginSettings.SetSetting("ipAddress", _sOscConfig.TargetIpAddress);
+        Host?.PluginSettings.SetSetting("oscPort", _sOscConfig.OscSendPort);
+        Host?.PluginSettings.SetSetting("tcpPort", _sOscConfig.TcpPort);
     }
 
     private static bool ValidateIp(string ip)
@@ -490,13 +487,13 @@ public class OSC : IServiceEndpoint
 
     #region UI Elements
 
-    private Page m_interfaceRoot { get; set; }
-    private TextBox m_tcpPortTextbox { get; set; }
-    private TextBox m_udpPortTextbox { get; set; }
-    private TextBox m_ipTextbox { get; set; }
-    private TextBlock m_ipAddressLabel { get; set; }
-    private TextBlock m_tcpPortLabel { get; set; }
-    private TextBlock m_udpPortLabel { get; set; }
+    private Page MInterfaceRoot { get; set; }
+    private TextBox MTcpPortTextbox { get; set; }
+    private TextBox MUdpPortTextbox { get; set; }
+    private TextBox MIpTextbox { get; set; }
+    private TextBlock MIpAddressLabel { get; set; }
+    private TextBlock MTcpPortLabel { get; set; }
+    private TextBlock MUdpPortLabel { get; set; }
 
     #endregion
 }
