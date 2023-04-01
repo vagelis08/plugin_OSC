@@ -45,6 +45,7 @@ public struct OscConfig
 [ExportMetadata("Name", "OSC")]
 [ExportMetadata("Guid", "K2VRTEAM-AME2-APII-SNDP-SENDPTVRCOSC")]
 [ExportMetadata("Publisher", "K2VR Team")]
+[ExportMetadata("Version", "1.0.0.0")]
 [ExportMetadata("Website", "https://github.com/KinectToVR/plugin_OSC")]
 public class Osc : IServiceEndpoint
 {

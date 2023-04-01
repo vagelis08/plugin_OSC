@@ -37,4 +37,6 @@ jobs:
           automatic_release_tag: "latest"
           prerelease: true
           title: "plugin_OSC Build Artifact"
-          files: "plugin_OSC/bin/Release/net7.0/win10-x64/publish/plugin_OSC.zip"
+          files: |
+            ./plugin_OSC/bin/Release/net7.0/win10-x64/publish/plugin_OSC.zip
+            ./external/manifest.json
