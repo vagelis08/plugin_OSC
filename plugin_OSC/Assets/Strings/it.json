@@ -1,0 +1,29 @@
+{
+  "language": "it",
+  "messages": [
+    {
+      "id": "/Settings/Labels/IPAddress",
+      "translation": "Indirizzo IP:"
+    },
+    {
+      "id": "/Settings/Labels/UDPPort",
+      "translation": "Porta UDP:"
+    },
+    {
+      "id": "/Settings/Labels/TCPPort",
+      "translation": "Porta TCP:"
+    },
+    {
+      "id": "/Statuses/Success",
+      "translation": "Successo!\nS_OK\nVa tutto bene!"
+    },
+    {
+      "id": "/Statuses/InitException",
+      "translation": "Errore fatale!\nE_EXCEPTION\nQualcosa è andato storto! Messaggio: {0}"
+    },
+    {
+      "id": "/Statuses/Unknown",
+      "translation": "Errore connessione!\nE_NOT_STARTED\nPremere il pulsante 'Ricarica' per avviare il server."
+    }
+  ]
+}
