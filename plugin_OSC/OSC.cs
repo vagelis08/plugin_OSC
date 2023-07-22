@@ -4,6 +4,7 @@
 using System.ComponentModel.Composition;
 using System.Net;
 using System.Numerics;
+using System.Reflection;
 using Amethyst.Plugins.Contract;
 using CoreOSC;
 using Microsoft.UI.Text;
@@ -42,11 +43,13 @@ public struct OscConfig
 }
 
 [Export(typeof(IServiceEndpoint))]
-[ExportMetadata("Name", "OSC")]
+[ExportMetadata("Name", "VRChat OSC")]
 [ExportMetadata("Guid", "K2VRTEAM-AME2-APII-SNDP-SENDPTVRCOSC")]
 [ExportMetadata("Publisher", "K2VR Team")]
 [ExportMetadata("Version", "1.0.0.0")]
 [ExportMetadata("Website", "https://github.com/KinectToVR/plugin_OSC")]
+[ExportMetadata("DependencyLink", "https://docs.k2vr.tech/{0}/osc/")]
+[ExportMetadata("CoreSetupData", typeof(SetupData))]
 public class Osc : IServiceEndpoint
 {
     private const string AmethystOscServiceName = "AMETHYST-OSC";
@@ -497,4 +500,17 @@ public class Osc : IServiceEndpoint
     private TextBlock MUdpPortLabel { get; set; }
 
     #endregion
+}
+
+internal class SetupData : ICoreSetupData
+{
+    public object PluginIcon => new BitmapIcon
+    {
+        UriSource = new Uri(Path.Join(Directory.GetParent(
+                Assembly.GetExecutingAssembly().Location)!.FullName,
+            "Assets", "Resources", "icon.png"))
+    };
+
+    public string GroupName => string.Empty;
+    public Type PluginType => typeof(IServiceEndpoint);
 }
