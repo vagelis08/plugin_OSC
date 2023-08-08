@@ -1,4 +1,6 @@
-﻿using System.Numerics;
+﻿using System.Net.Sockets;
+using System.Numerics;
+using BuildSoft.OscCore;
 
 namespace plugin_OSC;
 
@@ -28,5 +30,24 @@ public static class NumericExtensions
         angles.Z = (float)Math.Atan2(siny_cosp, cosy_cosp);
 
         return angles * RAD2DEG;
+    }
+}
+
+public class OscClientPlus : OscClient
+{
+    /// <summary>Send a message with a string and a bool</summary>
+    public void Send(string address, string message, bool value)
+    {
+        var boolTag = value ? "T" : "F";
+        Writer.Reset();
+        Writer.Write(address);
+        var typeTags = $",s{boolTag}";
+        Writer.Write(typeTags);
+        Writer.Write(message);
+        Socket.Send(Writer.Buffer, Writer.Length, SocketFlags.None);
+    }
+
+    public OscClientPlus(string ipAddress, int port) : base(ipAddress, port)
+    {
     }
 }

@@ -10,10 +10,12 @@
     <Platforms>x64</Platforms>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>preview</LangVersion>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Amethyst.Plugins.Contract" Version="0.2.21" />
+    <PackageReference Include="BuildSoft.OscCore" Version="1.2.1.1" />
     <PackageReference Include="MeaMod.DNS" Version="1.0.70" />
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="7.0.1" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
@@ -25,17 +27,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\vendor\CoreOSC-UTF8\CoreOSC\CoreOSC.csproj" />
+    <ProjectReference Include="..\vendor\vrc-oscquery-lib\vrc-oscquery-lib\vrc-oscquery-lib.csproj" />
   </ItemGroup>
 
   <ItemGroup>
     <TrimmerRootAssembly Include="MeaMod.DNS" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Reference Include="vrc-oscquery-lib">
-      <HintPath>..\vendor\vrc-oscquery-lib\vrc-oscquery-lib.dll</HintPath>
-    </Reference>
   </ItemGroup>
 
   <ItemGroup>
