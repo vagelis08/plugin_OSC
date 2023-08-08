@@ -51,7 +51,7 @@ public class OscPosition(Vector3 position = default, Quaternion orientation = de
 }
 
 [Export(typeof(IServiceEndpoint))]
-[ExportMetadata("Name", "VRChat OSC")]
+[ExportMetadata("Name", "VRChat Beta OSC")]
 [ExportMetadata("Guid", "K2VRTEAM-AME2-APII-SNDP-SENDPTVRCOSC")]
 [ExportMetadata("Publisher", "K2VR Team")]
 [ExportMetadata("Version", "1.0.0.0")]
