@@ -72,7 +72,7 @@ public class Osc : IServiceEndpoint
 
     private static OscConfig _sOscConfig = new("127.0.0.1");
     private static readonly Vector3 HeadOffset = new(0, 0, 0.2f);
-    private readonly List<OscClientPlus> _receivers = new();
+    private readonly SortedDictionary<string, OscClientPlus> _receivers = new();
 
     private Exception _lastInitException;
     [Import(typeof(IAmethystHost))] private IAmethystHost Host { get; set; }
@@ -145,15 +145,23 @@ public class Osc : IServiceEndpoint
 
     public void Heartbeat()
     {
-        // If the service hasn't started yet
-        if (!_receivers.Any()) return;
+        try
+        {
+            // If the service hasn't started yet
+            if (!_receivers.Any()) return;
 
-        var headJoint = Host?.GetHookJointPose();
-        if (!headJoint.HasValue) return;
+            var headJoint = Host?.GetHookJointPose();
+            if (!headJoint.HasValue) return;
 
-        // Vector3 eulerAngles = NumericExtensions.ToEulerAngles(headJoint.Value.Orientation);
-        foreach (var receiver in _receivers)
-            SendTrackerDataToReceiver("head", new OscPosition(headJoint.Value.Position + HeadOffset), receiver);
+            // Vector3 eulerAngles = NumericExtensions.ToEulerAngles(headJoint.Value.Orientation);
+            foreach (var receiver in _receivers.Values.ToList())
+                SendTrackerDataToReceiver("head", new OscPosition(headJoint.Value.Position + HeadOffset), receiver);
+        }
+        catch (Exception ex)
+        {
+            Host?.Log($"Unhandled Exception: {ex.GetType().Name} " +
+                      $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+        }
     }
 
     public int Initialize()
@@ -400,7 +408,7 @@ public class Osc : IServiceEndpoint
         }
 
         var trackers = trackerBases.ToList();
-        foreach (var receiver in _receivers)
+        foreach (var receiver in _receivers.Values.ToList())
             try
             {
                 foreach (var tracker in trackers)
@@ -432,7 +440,7 @@ public class Osc : IServiceEndpoint
         }
 
         var trackers = trackerBases.ToList();
-        foreach (var receiver in _receivers)
+        foreach (var receiver in _receivers.Values.ToList())
             try
             {
                 foreach (var tracker in trackers)
@@ -472,10 +480,19 @@ public class Osc : IServiceEndpoint
     private async void OnOscQueryServiceFound(OSCQueryServiceProfile profile)
     {
         Host?.Log($"Found service {profile.name} at {profile.address}!");
-
         if (!await ServiceSupportsTracking(profile)) return;
+
         var hostInfo = await GetHostInfo(profile.address, profile.port);
-        AddTrackingReceiver(profile.address, hostInfo.oscPort);
+        if (_receivers.TryGetValue(profile.name, out var value) &&
+            value.Destination.Address.Equals(profile.address) &&
+            value.Destination.Port == hostInfo.oscPort)
+        {
+            Host?.Log($"Service with key \"{profile.name}\" at " +
+                      $"{profile.address}:{hostInfo.oscPort} already registered, skipping");
+            return;
+        }
+
+        AddTrackingReceiver(profile.name, profile.address, hostInfo.oscPort);
 
         Host?.Log($"Set up {profile.name} at {profile.address}:{hostInfo.oscPort}");
         ServiceStatus = (int)OscStatusEnum.Success;
@@ -490,10 +507,10 @@ public class Osc : IServiceEndpoint
         }
 
         // Does the actual construction of the OSC Client
-        void AddTrackingReceiver(IPAddress address, int port)
+        void AddTrackingReceiver(string key, IPAddress address, int port)
         {
             var receiver = new OscClientPlus(address.ToString(), port);
-            _receivers.Add(receiver);
+            _receivers[key] = receiver;
         }
     }
 
