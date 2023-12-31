@@ -431,7 +431,7 @@ public class Osc : IServiceEndpoint
     }
 
     public Task<IEnumerable<(TrackerBase Tracker, bool Success)>> UpdateTrackerPoses(
-        IEnumerable<TrackerBase> trackerBases, bool wantReply = true)
+        IEnumerable<TrackerBase> trackerBases, bool wantReply = true, CancellationToken? token = null)
     {
         if (!_receivers.Any())
         {
