@@ -54,7 +54,7 @@ public class OscPosition(Vector3 position = default, Quaternion orientation = de
 [ExportMetadata("Name", "VRChat OSC")]
 [ExportMetadata("Guid", "K2VRTEAM-AME2-APII-SNDP-SENDPTVRCOSC")]
 [ExportMetadata("Publisher", "K2VR Team")]
-[ExportMetadata("Version", "1.0.0.0")]
+[ExportMetadata("Version", "1.0.0.1")]
 [ExportMetadata("Website", "https://github.com/KinectToVR/plugin_OSC")]
 [ExportMetadata("DependencyLink", "https://docs.k2vr.tech/{0}/osc/")]
 [ExportMetadata("CoreSetupData", typeof(SetupData))]
@@ -234,7 +234,8 @@ public class Osc : IServiceEndpoint
             var services = _oscQueryService.GetOSCQueryServices();
 
             // Trigger event for any existing OSCQueryServices
-            foreach (var profile in services) OnOscQueryServiceFound(profile);
+            foreach (var profile in services.Where(x => x.name is not AmethystOscServiceName))
+                OnOscQueryServiceFound(profile);
 
             // Query network for services
             _oscQuery.RefreshServices();
@@ -479,38 +480,46 @@ public class Osc : IServiceEndpoint
 
     private async void OnOscQueryServiceFound(OSCQueryServiceProfile profile)
     {
-        Host?.Log($"Found service {profile.name} at {profile.address}!");
-        if (!await ServiceSupportsTracking(profile)) return;
-
-        var hostInfo = await GetHostInfo(profile.address, profile.port);
-        if (_receivers.TryGetValue(profile.name, out var value) &&
-            value.Destination.Address.Equals(profile.address) &&
-            value.Destination.Port == hostInfo.oscPort)
+        try
         {
-            Host?.Log($"Service with key \"{profile.name}\" at " +
-                      $"{profile.address}:{hostInfo.oscPort} already registered, skipping");
-            return;
+            Host?.Log($"Found service {profile.name} at {profile.address}!");
+            if (!await ServiceSupportsTracking(profile)) return;
+
+            var hostInfo = await GetHostInfo(profile.address, profile.port);
+            if (_receivers.TryGetValue(profile.name, out var value) &&
+                value.Destination.Address.Equals(profile.address) &&
+                value.Destination.Port == hostInfo.oscPort)
+            {
+                Host?.Log($"Service with key \"{profile.name}\" at " +
+                          $"{profile.address}:{hostInfo.oscPort} already registered, skipping");
+                return;
+            }
+
+            AddTrackingReceiver(profile.name, profile.address, hostInfo.oscPort);
+
+            Host?.Log($"Set up {profile.name} at {profile.address}:{hostInfo.oscPort}");
+            ServiceStatus = (int)OscStatusEnum.Success;
+            Host?.RefreshStatusInterface(); // We're connected now!
+            return; // That's all (assuming everything's okay.....)
+
+            // Checks for compatibility by looking for matching Chatbox root node
+            async Task<bool> ServiceSupportsTracking(OSCQueryServiceProfile p)
+            {
+                var tree = await GetOSCTree(p.address, p.port);
+                return tree.GetNodeWithPath(TRACKERS_ROOT) != null;
+            }
+
+            // Does the actual construction of the OSC Client
+            void AddTrackingReceiver(string key, IPAddress address, int port)
+            {
+                var receiver = new OscClientPlus(address.ToString(), port);
+                _receivers[key] = receiver;
+            }
         }
-
-        AddTrackingReceiver(profile.name, profile.address, hostInfo.oscPort);
-
-        Host?.Log($"Set up {profile.name} at {profile.address}:{hostInfo.oscPort}");
-        ServiceStatus = (int)OscStatusEnum.Success;
-        Host?.RefreshStatusInterface(); // We're connected now!
-        return; // That's all (assuming everything's okay.....)
-
-        // Checks for compatibility by looking for matching Chatbox root node
-        async Task<bool> ServiceSupportsTracking(OSCQueryServiceProfile profile)
+        catch (Exception e)
         {
-            var tree = await GetOSCTree(profile.address, profile.port);
-            return tree.GetNodeWithPath(TRACKERS_ROOT) != null;
-        }
-
-        // Does the actual construction of the OSC Client
-        void AddTrackingReceiver(string key, IPAddress address, int port)
-        {
-            var receiver = new OscClientPlus(address.ToString(), port);
-            _receivers[key] = receiver;
+            Host?.Log($"Couldn't set up service with key \"{profile.name}\": {e.Message}");
+            Host?.Log(e);
         }
     }
 
