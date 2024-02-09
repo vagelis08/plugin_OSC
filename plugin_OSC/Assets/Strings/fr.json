@@ -18,6 +18,10 @@
       "translation": "Success!\nS_OK\nEverything's good!"
     },
     {
+      "id": "/Statuses/ManualOverride",
+      "translation": "Success! (Manual override)\nS_OK\nEverything's good!"
+    },
+    {
       "id": "/Statuses/InitException",
       "translation": "Fatal exception!\nE_EXCEPTION\nSomething went wrong! Message: {0}"
     },

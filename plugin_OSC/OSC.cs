@@ -2,18 +2,23 @@
 // Licensed under the MIT License. See LICENSE in the project root for license information.
 
 using System.ComponentModel.Composition;
+using System.Diagnostics;
 using System.Net;
+using System.Net.Sockets;
 using System.Numerics;
+using System.Text.RegularExpressions;
 using Amethyst.Plugins.Contract;
 using BuildSoft.OscCore;
+using Microsoft.UI;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using VRC.OSCQuery;
 using static VRC.OSCQuery.Extensions;
-using OSCExtensions = VRC.OSCQuery.Extensions;
+using TextBoxExtensions = CommunityToolkit.WinUI.UI.TextBoxExtensions;
 
 namespace plugin_OSC;
 
@@ -21,8 +26,8 @@ public struct OscConfig
 {
     private string _mTargetIpAddress;
     public int OscSendPort { get; set; }
-    public int OscReceivePort { get; set; }
     public int TcpPort { get; set; }
+    public bool ManualOverride { get; set; }
 
     public string TargetIpAddress
     {
@@ -39,7 +44,6 @@ public struct OscConfig
     {
         TargetIpAddress = targetIpAddress;
         OscSendPort = udpSendPort == -1 ? 9000 : udpSendPort;
-        OscReceivePort = udpListenPort == -1 ? 9001 : udpListenPort;
         TcpPort = tcpPort == -1 ? GetAvailableTcpPort() : tcpPort;
     }
 }
@@ -60,13 +64,11 @@ public class OscPosition(Vector3 position = default, Quaternion orientation = de
 [ExportMetadata("CoreSetupData", typeof(SetupData))]
 public class Osc : IServiceEndpoint
 {
-    private const string AmethystOscServiceName = "AMETHYST-OSC";
-
+    private const string AMETHYST_OSC_SERVICE_NAME = "AMETHYST-OSC";
     private const string TRACKERS_ROOT = "/tracking/trackers";
     private const string TRACKERS_POSITION = "position";
     private const string TRACKERS_ROTATION = "rotation";
 
-    private static OSCQueryService _oscQueryService;
     private static OSCQueryService _oscQuery;
     private static OscServer _receiver;
 
@@ -77,21 +79,16 @@ public class Osc : IServiceEndpoint
     private Exception _lastInitException;
     [Import(typeof(IAmethystHost))] private IAmethystHost Host { get; set; }
 
-    private bool IsIpValid { get; set; } = true;
-    private bool IsOscPortValid { get; set; } = true;
-    private bool IsTcpPortValid { get; set; } = true;
-    private bool PluginLoaded { get; set; }
-
     private OscLogger Logger => AmethystLogger ??= new OscLogger(Host);
     private OscLogger AmethystLogger { get; set; }
 
-    private static SortedDictionary<int, OscPosition> Positions { get; } = new();
-
     public bool IsSettingsDaemonSupported => true;
     public object SettingsInterfaceRoot => MInterfaceRoot;
-    public int ServiceStatus { get; private set; } = (int)OscStatusEnum.Unknown;
+    public int ServiceStatus => Math.Clamp((int)ServiceStatusInternal, -2, 0);
+    private OscStatusEnum ServiceStatusInternal { get; set; } = OscStatusEnum.Unknown;
 
-    public string ServiceStatusString => Host?.RequestLocalizedString($"/Statuses/{(OscStatusEnum)ServiceStatus}")
+    public string ServiceStatusString => Host
+        ?.RequestLocalizedString($"/Statuses/{ServiceStatusInternal}")
         .Replace("{0}", _lastInitException?.Message ?? "[Not available]") ?? "Status doko?";
 
     public Uri ErrorDocsUri => new($"https://docs.k2vr.tech/{Host?.DocsLanguageCode ?? "en"}/osc/");
@@ -133,9 +130,9 @@ public class Osc : IServiceEndpoint
     public bool IsAmethystVisible => true;
     public string TrackingSystemName => "OSC";
 
-    public (Vector3 Position, Quaternion Orientation)? HeadsetPose => Positions.TryGetValue(0, out var headPose)
-        ? new ValueTuple<Vector3, Quaternion>(headPose.Position, headPose.Orientation)
-        : null; // Otherwise just disable the whole thing
+    public (Vector3 Position, Quaternion Orientation)? HeadsetPose => null;
+
+    private bool PluginLoaded { get; set; }
 
     public void DisplayToast((string Title, string Text) message)
     {
@@ -170,7 +167,7 @@ public class Osc : IServiceEndpoint
         Host?.Log("Init!");
 
         // Assume [nothing]
-        ServiceStatus = (int)OscStatusEnum.Unknown;
+        ServiceStatusInternal = OscStatusEnum.Unknown;
 
         try
         {
@@ -187,13 +184,6 @@ public class Osc : IServiceEndpoint
                 _receiver = null;
             }
 
-            if (_oscQueryService != null)
-            {
-                Host?.Log("OSC Query Service was already running! Shutting it down...", LogSeverity.Warning);
-                _oscQueryService.Dispose();
-                _oscQueryService = null;
-            }
-
             if (_oscQuery != null)
             {
                 Host?.Log("OSC Query Service was already running! Shutting it down...", LogSeverity.Warning);
@@ -201,48 +191,65 @@ public class Osc : IServiceEndpoint
                 _oscQuery = null;
             }
 
+            // Check for manual configuration
+            if (_sOscConfig.ManualOverride)
+            {
+                SaveSettings(); // Save just to be (extra) sure...
+                ServiceStatusInternal = OscStatusEnum.ManualOverride;
+                return 0;
+            }
+
             // Create OSC Server on available port
             var port = GetAvailableTcpPort();
             var udpPort = GetAvailableUdpPort();
 
-            // Starts the OSC server
+            // Create OSC Server on available port
             _receiver = OscServer.GetOrCreate(udpPort);
             _oscQuery = new OSCQueryServiceBuilder()
-                .WithServiceName(Guid.NewGuid().ToString())
-                .WithLogger(Logger)
+                .WithServiceName(AMETHYST_OSC_SERVICE_NAME)
+                .WithHostIP(GetLocalIPAddress())
+                .WithOscIP(GetLocalIPAddressNonLoopback())
                 .WithTcpPort(port)
                 .WithUdpPort(udpPort)
+                .WithLogger(Logger)
                 .WithDiscovery(new MeaModDiscovery(Logger))
                 .StartHttpServer()
                 .AdvertiseOSC()
                 .AdvertiseOSCQuery()
                 .Build();
 
-            // Starts the OSC client
-            _oscQueryService = new OSCQueryServiceBuilder()
-                .WithServiceName(AmethystOscServiceName)
-                .WithLogger(Logger)
-                .WithTcpPort(_sOscConfig.TcpPort)
-                .WithUdpPort(_sOscConfig.OscSendPort)
-                .WithDiscovery(new MeaModDiscovery(Logger))
-                .StartHttpServer()
-                .AdvertiseOSCQuery()
-                .Build();
-
-            // Listen for other services
-            _oscQueryService.OnOscQueryServiceAdded += OnOscQueryServiceFound;
-            var services = _oscQueryService.GetOSCQueryServices();
-
-            // Trigger event for any existing OSCQueryServices
-            foreach (var profile in services.Where(x => x.name is not AmethystOscServiceName))
-                OnOscQueryServiceFound(profile);
-
-            // Query network for services
             _oscQuery.RefreshServices();
-            _oscQueryService.RefreshServices();
 
-            // Register the HMD pose reader
-            SetupTracker(0);
+            _oscQuery.OnOscQueryServiceAdded += LogDiscoveredService;
+            _oscQuery.OnOscServiceAdded += LogDiscoveredService;
+
+            async void LogDiscoveredService(OSCQueryServiceProfile profile)
+            {
+                if (profile.name == _oscQuery.ServerName) return;
+                Debug.WriteLine(
+                    $"\nFound service {profile.name} at {profile.address}:{profile.port} with type {profile.serviceType}\n");
+
+                if (_sOscConfig.ManualOverride || await OnOscQueryServiceFound(profile) < 0 ||
+                    _receivers.All(x => x.Key == "MANUAL")) return;
+
+                MUdpPortTextbox.DispatcherQueue.TryEnqueue(() =>
+                {
+                    MUdpPortTextbox.Text = "";
+                    MUdpPortTextbox.PlaceholderText = _sOscConfig.OscSendPort.ToString();
+                });
+
+                MIpTextbox.DispatcherQueue.TryEnqueue(() =>
+                {
+                    MIpTextbox.Text = "";
+                    MIpTextbox.PlaceholderText = _sOscConfig.TargetIpAddress;
+                });
+
+                // Delete the default OSC receiver and set status to [Success]
+                _receivers.Remove("MANUAL");
+                ServiceStatusInternal = OscStatusEnum.Success;
+                _sOscConfig.ManualOverride = false;
+            }
+
             SaveSettings();
         }
         catch (Exception ex)
@@ -251,7 +258,7 @@ public class Osc : IServiceEndpoint
                       $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
 
             _lastInitException = ex;
-            ServiceStatus = (int)OscStatusEnum.InitException;
+            ServiceStatusInternal = OscStatusEnum.InitException;
         }
 
         return 0;
@@ -273,62 +280,188 @@ public class Osc : IServiceEndpoint
         };
         MIpTextbox = new TextBox
         {
-            PlaceholderText = "localhost",
-            Text = _sOscConfig.TargetIpAddress
+            PlaceholderText = "127.0.0.1",
+            Text = _sOscConfig.ManualOverride ? _sOscConfig.TargetIpAddress : ""
+        };
+        AddressInvalidLabel = new TextBlock
+        {
+            Text = Host?.RequestLocalizedString("/Settings/Labels/IPAddressInvalid"),
+            Foreground = new SolidColorBrush(Colors.Red),
+            FontSize = 13.0,
+            Visibility = Visibility.Collapsed
         };
 
         MUdpPortLabel = new TextBlock
         {
-            Margin = new Thickness { Top = 2 },
+            Margin = new Thickness { Top = 10 },
             Text = Host?.RequestLocalizedString("/Settings/Labels/UDPPort"),
             FontWeight = FontWeights.SemiBold
         };
         MUdpPortTextbox = new TextBox
         {
             PlaceholderText = "9000",
-            Text = _sOscConfig.OscSendPort.ToString()
+            Text = _sOscConfig.ManualOverride ? _sOscConfig.OscSendPort.ToString() : ""
         };
-
-        MTcpPortLabel = new TextBlock
+        PortInvalidLabel = new TextBlock
         {
-            Margin = new Thickness { Top = 2 },
-            Text = Host?.RequestLocalizedString("/Settings/Labels/TCPPort"),
-            FontWeight = FontWeights.SemiBold
-        };
-        MTcpPortTextbox = new TextBox
-        {
-            PlaceholderText = GetAvailableTcpPort().ToString(),
-            Text = _sOscConfig.TcpPort.ToString()
+            Text = Host?.RequestLocalizedString("/Settings/Labels/PortInvalid"),
+            Foreground = new SolidColorBrush(Colors.Red),
+            FontSize = 13.0,
+            Visibility = Visibility.Collapsed
         };
 
         MIpTextbox.TextChanged += (_, _) =>
         {
             var currentIp = MIpTextbox.Text.Length == 0 ? MIpTextbox.PlaceholderText : MIpTextbox.Text;
-            if (ValidateIp(currentIp))
+            if (string.IsNullOrEmpty(MIpTextbox.Text))
             {
-                _sOscConfig.TargetIpAddress = currentIp;
-                IsIpValid = true;
+                AddressInvalidLabel.Visibility = Visibility.Collapsed;
+                _sOscConfig.TargetIpAddress = ValidateIp(MIpTextbox.Text) ? MIpTextbox.PlaceholderText : "127.0.0.1";
+
+                if (string.IsNullOrEmpty(MUdpPortTextbox.Text) && string.IsNullOrEmpty(MIpTextbox.Text))
+                {
+                    _sOscConfig.ManualOverride = false;
+
+                    // Delete the default OSC receiver and set status to [Failure]
+                    _receivers.Remove("MANUAL");
+                    ServiceStatusInternal = OscStatusEnum.Unknown;
+                }
+
+                SaveSettings();
+                return; // It's all the same...
             }
-            else
+
+            AddressInvalidLabel.Visibility =
+                ValidateIp(currentIp) ? Visibility.Collapsed : Visibility.Visible;
+        };
+
+        MIpTextbox.LostFocus += (_, _) =>
+        {
+            var currentIp = MIpTextbox.Text.Length == 0 ? MIpTextbox.PlaceholderText : MIpTextbox.Text;
+            if (string.IsNullOrEmpty(MIpTextbox.Text))
             {
-                IsIpValid = false;
+                AddressInvalidLabel.Visibility = Visibility.Collapsed;
+                _sOscConfig.TargetIpAddress = ValidateIp(MIpTextbox.Text) ? MIpTextbox.PlaceholderText : "127.0.0.1";
+
+                if (string.IsNullOrEmpty(MUdpPortTextbox.Text) && string.IsNullOrEmpty(MIpTextbox.Text))
+                {
+                    _sOscConfig.ManualOverride = false;
+
+                    // Delete the default OSC receiver and set status to [Failure]
+                    _receivers.Remove("MANUAL");
+                    ServiceStatusInternal = OscStatusEnum.Unknown;
+                }
+
+                SaveSettings();
+                return; // It's all the same...
+            }
+
+            AddressInvalidLabel.Visibility =
+                ValidateIp(currentIp) ? Visibility.Collapsed : Visibility.Visible;
+
+            if (!ValidateIp(currentIp)) return;
+            _sOscConfig.ManualOverride = true;
+            MUdpPortTextbox.Text = _sOscConfig.OscSendPort.ToString();
+            _sOscConfig.TargetIpAddress = ValidateIp(MIpTextbox.Text) ? MIpTextbox.Text : "127.0.0.1";
+            SaveSettings();
+
+            // Re-create the default OSC receiver and set status to [Manual Override]
+            try
+            {
+                _receivers["MANUAL"] = new OscClientPlus(_sOscConfig.TargetIpAddress, _sOscConfig.OscSendPort);
+                ServiceStatusInternal = OscStatusEnum.ManualOverride;
+            }
+            catch (Exception ex)
+            {
+                Host?.Log($"Unhandled Exception: {ex.GetType().Name} " +
+                          $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+
+                _lastInitException = ex;
+                ServiceStatusInternal = OscStatusEnum.InitException;
             }
         };
 
         MUdpPortTextbox.TextChanged += (_, _) =>
         {
-            var currentOscPort = MUdpPortTextbox.Text.Length == 0
+            var valid = int.TryParse((MUdpPortTextbox.Text.Length == 0
                 ? MUdpPortTextbox.PlaceholderText
-                : MUdpPortTextbox.Text;
-            if (int.TryParse(currentOscPort.AsSpan(), out var result)) _sOscConfig.OscSendPort = result;
+                : MUdpPortTextbox.Text).AsSpan(), out _);
+
+            if (string.IsNullOrEmpty(MUdpPortTextbox.Text))
+            {
+                PortInvalidLabel.Visibility = Visibility.Collapsed;
+                _sOscConfig.OscSendPort = int.TryParse(MUdpPortTextbox.PlaceholderText.AsSpan(), out var port1)
+                    ? 9000
+                    : port1;
+
+                if (string.IsNullOrEmpty(MUdpPortTextbox.Text) && string.IsNullOrEmpty(MIpTextbox.Text))
+                {
+                    _sOscConfig.ManualOverride = false;
+
+                    // Delete the default OSC receiver and set status to [Failure]
+                    _receivers.Remove("MANUAL");
+                    ServiceStatusInternal = OscStatusEnum.Unknown;
+                }
+
+                SaveSettings();
+                return; // It's all the same...
+            }
+
+            PortInvalidLabel.Visibility =
+                valid ? Visibility.Collapsed : Visibility.Visible;
         };
 
-        MTcpPortTextbox.TextChanged += (_, _) =>
+        MUdpPortTextbox.LostFocus += (_, _) =>
         {
-            var currentTcpPort = MTcpPortTextbox.Text.Length == 0
-                ? MTcpPortTextbox.PlaceholderText
-                : MTcpPortTextbox.Text;
-            if (int.TryParse(currentTcpPort.AsSpan(), out var result)) _sOscConfig.TcpPort = result;
+            var valid = int.TryParse(MUdpPortTextbox.Text.Length == 0
+                ? MUdpPortTextbox.PlaceholderText
+                : MUdpPortTextbox.Text, out _);
+
+            if (string.IsNullOrEmpty(MUdpPortTextbox.Text))
+            {
+                PortInvalidLabel.Visibility = Visibility.Collapsed;
+                _sOscConfig.OscSendPort = int.TryParse(MUdpPortTextbox.PlaceholderText, out var port1)
+                    ? port1
+                    : 9000;
+
+                if (string.IsNullOrEmpty(MUdpPortTextbox.Text) && string.IsNullOrEmpty(MIpTextbox.Text))
+                {
+                    _sOscConfig.ManualOverride = false;
+
+                    // Delete the default OSC receiver and set status to [Failure]
+                    _receivers.Remove("MANUAL");
+                    ServiceStatusInternal = OscStatusEnum.Unknown;
+                }
+
+                SaveSettings();
+                return; // It's all the same...
+            }
+
+            PortInvalidLabel.Visibility =
+                valid ? Visibility.Collapsed : Visibility.Visible;
+
+            if (!valid) return;
+            _sOscConfig.ManualOverride = true;
+            MIpTextbox.Text = _sOscConfig.TargetIpAddress;
+            _sOscConfig.OscSendPort = int.TryParse(MUdpPortTextbox.Text, out var port2)
+                ? port2
+                : 9000;
+            SaveSettings();
+
+            // Re-create the default OSC receiver and set status to [Manual Override]
+            try
+            {
+                _receivers["MANUAL"] = new OscClientPlus(_sOscConfig.TargetIpAddress, _sOscConfig.OscSendPort);
+                ServiceStatusInternal = OscStatusEnum.ManualOverride;
+            }
+            catch (Exception ex)
+            {
+                Host?.Log($"Unhandled Exception: {ex.GetType().Name} " +
+                          $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+
+                _lastInitException = ex;
+                ServiceStatusInternal = OscStatusEnum.InitException;
+            }
         };
 
         // UI Layout
@@ -336,28 +469,26 @@ public class Osc : IServiceEndpoint
         Grid.SetRow(MIpAddressLabel, 0);
         Grid.SetColumn(MIpTextbox, 1);
         Grid.SetRow(MIpTextbox, 0);
+        Grid.SetColumn(AddressInvalidLabel, 1);
+        Grid.SetRow(AddressInvalidLabel, 1);
 
         Grid.SetColumn(MUdpPortLabel, 0);
-        Grid.SetRow(MUdpPortLabel, 1);
+        Grid.SetRow(MUdpPortLabel, 2);
         Grid.SetColumn(MUdpPortTextbox, 1);
-        Grid.SetRow(MUdpPortTextbox, 1);
-
-        Grid.SetColumn(MTcpPortLabel, 0);
-        Grid.SetRow(MTcpPortLabel, 2);
-        Grid.SetColumn(MTcpPortTextbox, 1);
-        Grid.SetRow(MTcpPortTextbox, 2);
+        Grid.SetRow(MUdpPortTextbox, 2);
+        Grid.SetColumn(PortInvalidLabel, 1);
+        Grid.SetRow(PortInvalidLabel, 3);
 
         // Creates UI
         MInterfaceRoot = new Page
         {
             Content = new Grid
             {
-                Margin = new Thickness { Left = 3 },
                 Children =
                 {
                     MIpAddressLabel, MIpTextbox,
                     MUdpPortLabel, MUdpPortTextbox,
-                    MTcpPortLabel, MTcpPortTextbox
+                    AddressInvalidLabel, PortInvalidLabel
                 },
                 ColumnDefinitions =
                 {
@@ -368,11 +499,20 @@ public class Osc : IServiceEndpoint
                 RowDefinitions =
                 {
                     new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
+                    new RowDefinition { Height = GridLength.Auto },
                     new RowDefinition { Height = new GridLength(1, GridUnitType.Star) },
-                    new RowDefinition { Height = new GridLength(1, GridUnitType.Star) }
+                    new RowDefinition { Height = GridLength.Auto },
+                    new RowDefinition { Height = GridLength.Auto }
                 }
             }
         };
+
+        MUdpPortTextbox.Transitions.Add(new RepositionThemeTransition());
+        MIpTextbox.Transitions.Add(new RepositionThemeTransition());
+        MIpAddressLabel.Transitions.Add(new RepositionThemeTransition());
+        MUdpPortLabel.Transitions.Add(new RepositionThemeTransition());
+        AddressInvalidLabel.Transitions.Add(new RepositionThemeTransition());
+        PortInvalidLabel.Transitions.Add(new RepositionThemeTransition());
 
         PluginLoaded = true;
     }
@@ -387,16 +527,13 @@ public class Osc : IServiceEndpoint
     {
         Host?.Log("Shutting down...");
 
-        _oscQueryService?.Dispose();
-        _oscQueryService = null;
-
         _oscQuery?.Dispose();
         _oscQuery = null;
 
         _receiver.Dispose();
         _receiver = null;
 
-        ServiceStatus = (int)OscStatusEnum.Unknown;
+        ServiceStatusInternal = OscStatusEnum.Unknown;
     }
 
     public Task<IEnumerable<(TrackerBase Tracker, bool Success)>> SetTrackerStates(
@@ -473,34 +610,34 @@ public class Osc : IServiceEndpoint
 
     public Task<(int Status, string StatusMessage, long PingTime)> TestConnection()
     {
-        // @TODO: Test connection somehow
         Host?.Log("TestConnection!");
         return Task.FromResult((_receivers.Any() ? 0 : -1, "OK", 0L));
     }
 
-    private async void OnOscQueryServiceFound(OSCQueryServiceProfile profile)
+    private async Task<int> OnOscQueryServiceFound(OSCQueryServiceProfile profile)
     {
         try
         {
-            Host?.Log($"Found service {profile.name} at {profile.address}!");
-            if (!await ServiceSupportsTracking(profile)) return;
+            var profileAddress = Equals(profile.address, GetLocalIPAddress()) ? IPAddress.Loopback : profile.address;
+            Host?.Log($"Found service {profile.name} at {profileAddress}!");
+            if (!await ServiceSupportsTracking(profile)) return -1;
 
-            var hostInfo = await GetHostInfo(profile.address, profile.port);
+            var hostInfo = await GetHostInfo(profileAddress, profile.port);
             if (_receivers.TryGetValue(profile.name, out var value) &&
-                value.Destination.Address.Equals(profile.address) &&
+                value.Destination.Address.Equals(profileAddress) &&
                 value.Destination.Port == hostInfo.oscPort)
             {
                 Host?.Log($"Service with key \"{profile.name}\" at " +
-                          $"{profile.address}:{hostInfo.oscPort} already registered, skipping");
-                return;
+                          $"{profileAddress}:{hostInfo.oscPort} already registered, skipping");
+                return 0;
             }
 
-            AddTrackingReceiver(profile.name, profile.address, hostInfo.oscPort);
+            AddTrackingReceiver(profile.name, profileAddress, hostInfo.oscPort);
 
-            Host?.Log($"Set up {profile.name} at {profile.address}:{hostInfo.oscPort}");
-            ServiceStatus = (int)OscStatusEnum.Success;
+            Host?.Log($"Set up {profile.name} at {profileAddress}:{hostInfo.oscPort}");
+            ServiceStatusInternal = OscStatusEnum.Success;
             Host?.RefreshStatusInterface(); // We're connected now!
-            return; // That's all (assuming everything's okay.....)
+            return 1; // That's all (assuming everything's okay.....)
 
             // Checks for compatibility by looking for matching Chatbox root node
             async Task<bool> ServiceSupportsTracking(OSCQueryServiceProfile p)
@@ -521,42 +658,8 @@ public class Osc : IServiceEndpoint
             Host?.Log($"Couldn't set up service with key \"{profile.name}\": {e.Message}");
             Host?.Log(e);
         }
-    }
 
-    private void SetupTracker(int index)
-    {
-        var trackerName = index == 0 ? "head" : index.ToString();
-        Positions[index] = new OscPosition(); // Prepare the container
-
-        _oscQuery.AddEndpoint($"{TRACKERS_ROOT}/{trackerName}/{TRACKERS_POSITION}", "fff",
-            Attributes.AccessValues.WriteOnly);
-        _oscQuery.AddEndpoint($"{TRACKERS_ROOT}/{trackerName}/{TRACKERS_ROTATION}", "fff",
-            Attributes.AccessValues.WriteOnly);
-
-        var result = _receiver.TryAddMethod($"{TRACKERS_ROOT}/{trackerName}/{TRACKERS_POSITION}",
-            message =>
-            {
-                if (message.ReadFloatElement(0) != 0)
-                    Positions[index].Position = new Vector3(
-                        message.ReadFloatElement(0),
-                        message.ReadFloatElement(1),
-                        -message.ReadFloatElement(2));
-            }
-        );
-
-        Host?.Log($"TryAddMethod for \"head\" returned {result}");
-        result = _receiver.TryAddMethod($"{TRACKERS_ROOT}/{trackerName}/{TRACKERS_ROTATION}",
-            message =>
-            {
-                if (message.ReadFloatElement(0) != 0)
-                    Positions[index].Orientation = Quaternion.CreateFromYawPitchRoll(
-                        message.ReadFloatElement(1),
-                        message.ReadFloatElement(0),
-                        message.ReadFloatElement(2));
-            }
-        );
-
-        Host?.Log($"TryAddMethod for \"head\" returned {result}");
+        return -1;
     }
 
     private static int TrackerRoleToOscId(TrackerType role)
@@ -582,6 +685,7 @@ public class Osc : IServiceEndpoint
             Host?.PluginSettings.GetSetting("ipAddress", "127.0.0.1"), "127.0.0.1");
         _sOscConfig.OscSendPort = Host?.PluginSettings.GetSetting("oscPort", 9000) ?? 9000;
         _sOscConfig.TcpPort = Host?.PluginSettings.GetSetting("tcpPort", 54126) ?? 54126;
+        _sOscConfig.ManualOverride = Host?.PluginSettings.GetSetting("manual", false) ?? false;
     }
 
     private void SaveSettings()
@@ -589,6 +693,8 @@ public class Osc : IServiceEndpoint
         Host?.PluginSettings.SetSetting("ipAddress", _sOscConfig.TargetIpAddress);
         Host?.PluginSettings.SetSetting("oscPort", _sOscConfig.OscSendPort);
         Host?.PluginSettings.SetSetting("tcpPort", _sOscConfig.TcpPort);
+        Host?.PluginSettings.SetSetting("manual", _sOscConfig.ManualOverride);
+        Host?.RefreshStatusInterface(); // Reload just in case...
     }
 
     private static bool ValidateIp(string ip)
@@ -632,20 +738,40 @@ public class Osc : IServiceEndpoint
     {
         Unknown = -2,
         InitException,
-        Success
+        Success,
+        ManualOverride
     }
 
     #region UI Elements
 
     private Page MInterfaceRoot { get; set; }
-    private TextBox MTcpPortTextbox { get; set; }
     private TextBox MUdpPortTextbox { get; set; }
     private TextBox MIpTextbox { get; set; }
     private TextBlock MIpAddressLabel { get; set; }
-    private TextBlock MTcpPortLabel { get; set; }
     private TextBlock MUdpPortLabel { get; set; }
+    private TextBlock AddressInvalidLabel { get; set; }
+    private TextBlock PortInvalidLabel { get; set; }
 
     #endregion
+
+
+    public static IPAddress GetLocalIPAddress()
+    {
+        // Windows can only serve TCP on the loopback address, but can serve UDP on the non-loopback address
+        return IPAddress.Loopback;
+    }
+
+    public static IPAddress GetLocalIPAddressNonLoopback()
+    {
+        // Get the host name of the local machine
+        var hostName = Dns.GetHostName();
+
+        // Get the IP address of the first IPv4 network interface found on the local machine
+        foreach (var ip in Dns.GetHostEntry(hostName).AddressList)
+            if (ip.AddressFamily == AddressFamily.InterNetwork)
+                return ip;
+        return null;
+    }
 }
 
 internal class SetupData : ICoreSetupData

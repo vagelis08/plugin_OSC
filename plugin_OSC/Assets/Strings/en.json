@@ -18,12 +18,24 @@
       "translation": "Success!\nS_OK\nEverything's good!"
     },
     {
+      "id": "/Statuses/ManualOverride",
+      "translation": "Success! (Manual override)\nS_OK\nEverything's good!"
+    },
+    {
       "id": "/Statuses/InitException",
       "translation": "Fatal exception!\nE_EXCEPTION\nSomething went wrong! Message: {0}"
     },
     {
       "id": "/Statuses/Unknown",
       "translation": "Connection error!\nE_NOT_STARTED\nPress the 'Refresh' button to start the server up."
+    },
+    {
+      "id": "/Settings/Labels/IPAddressInvalid",
+      "translation": "IP address invalid!"
+    },
+    {
+      "id": "/Settings/Labels/PortInvalid",
+      "translation": "OSC port invalid!"
     }
   ]
 }
