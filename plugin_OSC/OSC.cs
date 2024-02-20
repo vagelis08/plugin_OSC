@@ -145,7 +145,7 @@ public class Osc : IServiceEndpoint
         try
         {
             // If the service hasn't started yet
-            if (!_receivers.Any()) return;
+            if (!_receivers.Any() || !(Host?.IsTrackedJointValid(TrackedJointType.JointHead) ?? false)) return;
 
             var headJoint = Host?.GetHookJointPose();
             if (!headJoint.HasValue) return;
