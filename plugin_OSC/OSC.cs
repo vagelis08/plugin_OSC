@@ -196,6 +196,21 @@ public class Osc : IServiceEndpoint
             {
                 SaveSettings(); // Save just to be (extra) sure...
                 ServiceStatusInternal = OscStatusEnum.ManualOverride;
+
+                try
+                {
+                    _receivers["MANUAL"] = new OscClientPlus(_sOscConfig.TargetIpAddress, _sOscConfig.OscSendPort);
+                    ServiceStatusInternal = OscStatusEnum.ManualOverride;
+                }
+                catch (Exception ex)
+                {
+                    Host?.Log($"Unhandled Exception: {ex.GetType().Name} " +
+                              $"in {ex.Source}: {ex.Message}\n{ex.StackTrace}", LogSeverity.Fatal);
+
+                    _lastInitException = ex;
+                    ServiceStatusInternal = OscStatusEnum.InitException;
+                }
+
                 return 0;
             }
 
@@ -530,7 +545,7 @@ public class Osc : IServiceEndpoint
         _oscQuery?.Dispose();
         _oscQuery = null;
 
-        _receiver.Dispose();
+        _receiver?.Dispose();
         _receiver = null;
 
         ServiceStatusInternal = OscStatusEnum.Unknown;
