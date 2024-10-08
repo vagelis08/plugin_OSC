@@ -8,9 +8,7 @@
 This project is licensed under the GNU GPL v3 License 
 
 ## **Overview**
-This repo is a pure implementation of the `IServiceEndpoint` interface,  
-providing Amethyst support for OSC (VRChat), using CoreOSC and OscQuery.  
-[The bound API](https://github.com/KinectToVR/plugin_OSC/tree/main/vendor/vrc-oscquery-lib) provided by VRChat, and [the plugin itself](https://github.com/KinectToVR/plugin_OSC/tree/main/plugin_OSC) are written in C#
+This is just a fork of the actual OSC plugin, modified to work with Dance Dash.
 
 ## **Downloads**
 You're going to find built plugins in [repo Releases](https://github.com/KinectToVR/plugin_OSC/releases/latest).
