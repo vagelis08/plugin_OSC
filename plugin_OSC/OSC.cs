@@ -55,9 +55,9 @@ public class OscPosition(Vector3 position = default, Quaternion orientation = de
 }
 
 [Export(typeof(IServiceEndpoint))]
-[ExportMetadata("Name", "VRChat OSC")]
-[ExportMetadata("Guid", "K2VRTEAM-AME2-APII-SNDP-SENDPTVRCOSC")]
-[ExportMetadata("Publisher", "K2VR Team")]
+[ExportMetadata("Name", "Dance Dash OSC")]
+[ExportMetadata("Guid", "RADO-AME2-APII-SNDP-SENDPTDDOSC")]
+[ExportMetadata("Publisher", "Rado")]
 [ExportMetadata("Version", "1.0.0.1")]
 [ExportMetadata("Website", "https://github.com/KinectToVR/plugin_OSC")]
 [ExportMetadata("DependencyLink", "https://docs.k2vr.tech/{0}/osc/")]
