@@ -682,13 +682,13 @@ public class Osc : IServiceEndpoint
         return role switch
         {
             TrackerType.TrackerWaist => 1,
-            TrackerType.TrackerLeftFoot => 2,
-            TrackerType.TrackerRightFoot => 3,
-            TrackerType.TrackerLeftKnee => 4,
+            TrackerType.TrackerLeftFoot => 8,
+            TrackerType.TrackerRightFoot => 7,
+            TrackerType.TrackerLeftKnee => 6,
             TrackerType.TrackerRightKnee => 5,
-            TrackerType.TrackerLeftElbow => 6,
-            TrackerType.TrackerRightElbow => 7,
-            TrackerType.TrackerChest => 8,
+            TrackerType.TrackerLeftElbow => 3,
+            TrackerType.TrackerRightElbow => 4,
+            TrackerType.TrackerChest => 2,
             _ => -1
         };
     }
