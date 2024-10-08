@@ -1,7 +1,7 @@
 {
   "version": "1.0.0.0",
-  "display_name": "OSC",
-  "download":  "plugin_OSC.zip",
-  "changelog": "Partial code cleanup, implicit using-s, tweaked trimmer.",
-  "guid": "K2VRTEAM-AME2-APII-SNDP-SENDPTVRCOSC"
+  "display_name": "Dance Dash OSC",
+  "download":  "plugin_DanceDashOSC.zip",
+  "changelog": "Changed OSC addresses for Dance Dash.",
+  "guid": "RADO-AME2-APII-SNDP-SENDPTDDOSC"
 }
